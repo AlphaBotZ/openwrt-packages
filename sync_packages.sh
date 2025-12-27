@@ -6,7 +6,7 @@ OWN_REPO="git@github.com:AlphaBotZ/openwrt-packages.git"
 
 SYNC_LIST=(
     "https://github.com/mingxiaoyu/luci-app-cloudflarespeedtest.git applications/luci-app-cloudflarespeedtest luci-app-cloudflarespeedtest"
-    "https://github.com/immortalwrt-collections/openwrt-cdnspeedtest.git . cdnspeedtest"
+    "https://github.com/immortalwrt-collections/openwrt-cdnspeedtest.git cdnspeedtest cdnspeedtest"
     "https://github.com/destan19/OpenAppFilter.git . OpenAppFilter"
     "https://github.com/nikkinikki-org/OpenWrt-nikki.git . OpenWrt-nikki"
     "https://github.com/jerrykuku/luci-theme-argon.git . luci-theme-argon"
