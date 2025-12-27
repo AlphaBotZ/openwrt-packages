@@ -19,6 +19,7 @@ SYNC_LIST=(
     "https://github.com/sbwml/luci-app-openlist2.git . luci-app-openlist2"
     "https://github.com/sbwml/luci-app-mosdns.git . luci-app-mosdns"
     "https://github.com/rufengsuixing/luci-app-adguardhome.git . luci-app-adguardhome"
+    "https://github.com/rufengsuixing/luci-app-zerotier.git . luci-app-zerotier"
 )
 # 临时工作目录
 WORK_DIR="/tmp/openwrt_sync"
