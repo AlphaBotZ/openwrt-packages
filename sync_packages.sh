@@ -6,11 +6,13 @@ set -e  # 出错立即退出
 OWN_REPO="git@github.com:AlphaBotZ/openwrt-packages.git"
 # 要同步的目标仓库列表（格式：仓库地址 插件目录 目标目录）
 SYNC_LIST=(
-    # 示例1：同步 lean 仓库的 ddns-go 插件到自己仓库的 ddns-go 目录
-    "https://github.com/coolsnowwolf/lede.git package/lean/ddns-go ddns-go"
-    # 示例2：同步 Lienol 仓库的 passwall 插件到自己仓库的 passwall 目录
-    "https://github.com/xiaorouji/openwrt-passwall.git package/passwall passwall"
     # 可添加更多行，格式：源仓库地址 源插件目录 目标目录
+    "https://github.com/mingxiaoyu/luci-app-cloudflarespeedtest.git applications/luci-app-cloudflarespeedtest luci-app-cloudflarespeedtest"
+    "https://github.com/immortalwrt-collections/openwrt-cdnspeedtest.git cdnspeedtest"
+    "https://github.com/destan19/OpenAppFilter.git OpenAppFilter"
+    "https://github.com/nikkinikki-org/OpenWrt-nikki.git OpenWrt-nikki"
+    "https://github.com/jerrykuku/luci-theme-argon.git luci-theme-argon"
+    "https://github.com/jerrykuku/luci-app-argon-config.git luci-app-argon-config"
 )
 # 临时工作目录
 WORK_DIR="/tmp/openwrt_sync"
