@@ -32,52 +32,41 @@ git clone "$OWN_REPO" own_repo
 cd own_repo
 
 
-# 同步函数
-sync_plugin() {
-    local SRC_REPO="$1"
-    local SRC_DIR="$2"
-    local DEST_DIR="$3"
-
+# 遍历同步列表，复制插件
+for ITEM in "${SYNC_LIST[@]}"; do
+    # 拆分参数
+    read -r SRC_REPO SRC_DIR DEST_DIR <<< "$ITEM"
     echo "===== 开始同步：$SRC_REPO → $DEST_DIR ====="
-    git clone --depth 1 "$SRC_REPO" src_repo
-
-    rm -rf "$DEST_DIR"
-    mkdir -p "$DEST_DIR"
-
-    if [ "$SRC_DIR" = "." ]; then
-        # 根目录插件：复制整个仓库内容（排除 .git）
-        rsync -a --exclude='.git' src_repo/ "$DEST_DIR"/
-        echo "✅ 同步成功：根目录 → $DEST_DIR"
-    elif [ -d "src_repo/$SRC_DIR" ]; then
-        # 子目录插件：复制指定目录内容
-        rsync -a "src_repo/$SRC_DIR/" "$DEST_DIR"/
+    
+    # 克隆源仓库（浅克隆，只拉最新代码，节省时间）
+    git clone --depth 1 $SRC_REPO src_repo
+    
+    # 检查源插件目录是否存在
+    if [ -d "src_repo/$SRC_DIR" ]; then
+        # 删除自己仓库中旧的插件目录（如果有）
+        rm -rf "$DEST_DIR"
+        # 复制新插件目录到自己仓库
+        cp -r "src_repo/$SRC_DIR" "$DEST_DIR"
         echo "✅ 同步成功：$SRC_DIR → $DEST_DIR"
     else
         echo "❌ 源目录不存在：src_repo/$SRC_DIR，跳过"
     fi
-
+    
+    # 删除临时源仓库
     rm -rf src_repo
-}
-
-
-# 遍历列表并调用函数
-for ITEM in "${SYNC_LIST[@]}"; do
-    read -r SRC_REPO SRC_DIR DEST_DIR <<< "$ITEM"
-    sync_plugin "$SRC_REPO" "$SRC_DIR" "$DEST_DIR"
 done
 
-
-# 提交并推送
+# 提交并推送代码到自己的仓库
 git add .
+# 检查是否有变更
 if git diff --cached --quiet; then
     echo "😶 无代码变更，无需提交"
 else
     git commit -m "Auto sync packages: $(date +'%Y-%m-%d %H:%M:%S')"
-    git push origin main
+    git push origin main  # 若主分支是 master，改为 master
     echo "🚀 代码已推送至自己的仓库"
 fi
 
-
 # 清理临时目录
-rm -rf "$WORK_DIR"
+rm -rf $WORK_DIR
 echo "🎉 同步任务完成"
