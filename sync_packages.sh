@@ -13,6 +13,7 @@ SYNC_LIST=(
     "https://github.com/nikkinikki-org/OpenWrt-nikki.git . OpenWrt-nikki"
     "https://github.com/jerrykuku/luci-theme-argon.git . luci-theme-argon"
     "https://github.com/jerrykuku/luci-app-argon-config.git . luci-app-argon-config"
+    "https://github.com/rufengsuixing/luci-app-zerotier.git . luci-app-zerotier"
 )
 # 临时工作目录
 WORK_DIR="/tmp/openwrt_sync"
