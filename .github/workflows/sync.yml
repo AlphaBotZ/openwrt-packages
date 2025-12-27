@@ -1,0 +1,30 @@
+name: Auto Sync OpenWrt Packages
+on:
+  # 定时执行：每天凌晨 2 点（UTC 时间，对应北京时间 10 点，可自行调整）
+  schedule:
+    - cron: '0 18 * * *'  # 时区说明：UTC+8 = 北京时间，所以 UTC 18 点 = 北京时间 2 点
+  # 手动触发（可选，方便测试）
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest  # 使用 Ubuntu 虚拟机执行
+    steps:
+      - name: Checkout 自己的仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 SSH 密钥（用于推送代码）
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # 引用 GitHub 密钥
+
+      - name: 安装依赖（Git）
+        run: sudo apt update && sudo apt install -y git
+
+      - name: 执行同步脚本
+        run: |
+          chmod +x sync_packages.sh  # 赋予脚本执行权限
+          ./sync_packages.sh
+
+      - name: 输出执行结果
+        run: echo "Sync task finished at $(date)"
