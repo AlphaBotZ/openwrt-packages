@@ -33,3 +33,11 @@ jobs:
 
       - name: 输出执行结果
         run: echo "Sync task finished at $(date '+%Y-%m-%d %H:%M:%S')"
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 1
+          keep_minimum_runs: 1
