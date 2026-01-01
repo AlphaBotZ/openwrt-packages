@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: 'packages'
+        description: 'sync_packages'
         required: false
         default: 'false'	
 
