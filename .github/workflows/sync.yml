@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [main]
+        target: [sycn_packages]
 
     steps:
     - name: Checkout
