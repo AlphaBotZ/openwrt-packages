@@ -134,7 +134,7 @@ SYNC_LIST=(
     "https://github.com/muink/openwrt-fchomo . openwrt-fchomo"
     "https://github.com/lucikap/luci-app-brukamen . luci-app-brukamen"
     "https://github.com/Thaolga/openwrt-nekobox . openwrt-nekobox"
-    "https://github.com/Carseason/openwrt-packages . openwrt-packages"
+    "https://github.com/Carseason/openwrt-packages . arseason-packages"
     "https://github.com/Carseason/openwrt-themedog . openwrt-themedog"
     "https://github.com/Carseason/openwrt-app-actions . openwrt-app-actions"
     "https://github.com/Akimio521/luci-app-gecoosac . luci-app-gecoosac"
