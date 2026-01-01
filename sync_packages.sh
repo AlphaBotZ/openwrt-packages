@@ -162,10 +162,8 @@ SYNC_LIST=(
     "https://github.com/EasyTier/luci-app-easytier . luci-app-easytier"
     "https://github.com/sbwml/luci-app-openlist2 . luci-app-openlist2"
     "https://github.com/AngelaCooljx/luci-theme-material3 . luci-theme-material3"
-    "https://github.com/vison-v/luci-app-nginx-proxy . luci-app-nginx-proxy"
     "https://github.com/EasyTier/luci-app-easytier . luci-app-easytier"
     "https://github.com/AngelaCooljx/luci-theme-material3 . luci-theme-material3"
-    "https://github.com/vison-v/luci-app-nginx-proxy . luci-app-nginx-proxy"
 )
 
 WORK_DIR="/tmp/openwrt_sync"
