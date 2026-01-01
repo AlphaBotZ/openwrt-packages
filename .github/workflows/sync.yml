@@ -28,7 +28,7 @@ jobs:
 
       - name: 执行同步脚本
         run: |
-          chmod +x sync_packages.sh
+          chmod +x .github/workflows/sync_packages.sh
           ./.github/workflows/sync_packages.sh
 
       - name: 输出执行结果
