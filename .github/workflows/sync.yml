@@ -20,15 +20,15 @@ jobs:
 
       - name: 配置 Git 身份（避免提交时身份缺失）
         run: |
-          git config --global user.name "AlphaBotZ"  # 替换为你的 GitHub 用户名
-          git config --global user.email "zt@outlook.sg"  # 替换为你的绑定邮箱
+          git config --global user.name "AlphaBotZ"
+          git config --global user.email "zt@outlook.sg"
 
       - name: 安装依赖
         run: sudo apt update && sudo apt install -y git
 
       - name: 执行同步脚本
         run: |
-          chmod +x .github/workflows/sync_packages.sh
+          chmod +x ./.github/workflows/sync_packages.sh
           ./.github/workflows/sync_packages.sh
 
       - name: 输出执行结果
