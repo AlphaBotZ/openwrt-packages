@@ -91,7 +91,7 @@ SYNC_LIST=(
     "https://github.com/kenzok8/wall . wall"
     "https://github.com/peter-tank/luci-app-fullconenat . luci-app-fullconenat"
     "https://github.com/sirpdboy/sirpdboy-package . sirpdboy-package"
-    "https://github.com/sundaqiang/openwrt-packages . openwrt-packages"
+    "https://github.com/sundaqiang/openwrt-packages . sundaqiang-packages"
     "https://github.com/zxlhhyccc/luci-app-v2raya . luci-app-v2raya"
     "https://github.com/kenzok8/luci-theme-ifit . luci-theme-ifit"
     "https://github.com/kenzok78/openwrt-minisign . openwrt-minisign"
