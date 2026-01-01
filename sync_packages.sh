@@ -21,6 +21,7 @@ SYNC_LIST=(
     "https://github.com/fw876/helloworld.git . helloworld"
     "https://github.com/BCYDTZ/luci-app-UUGameAcc.git . luci-app-UUGameAcc"
     "https://github.com/kenzok8/small-package.git luci-app-ssr-plus luci-app-ssr-plus"
+    "https://github.com/douglarek/luci-app-homeproxy.git . luci-app-homeproxy"
 )
 
 WORK_DIR="/tmp/openwrt_sync"
