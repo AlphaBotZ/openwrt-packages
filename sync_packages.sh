@@ -88,7 +88,7 @@ SYNC_LIST=(
     "https://github.com/Hyy2001X/AutoBuild-Packages . AutoBuild-Packages"
     "https://github.com/lisaac/luci-app-dockerman . luci-app-dockerman"
     "https://github.com/gdck/luci-app-cupsd . luci-app-cupsd"
-    "https://github.com/kenzok8/wall . wall"
+#    "https://github.com/kenzok8/wall . wall"
     "https://github.com/peter-tank/luci-app-fullconenat . luci-app-fullconenat"
     "https://github.com/sundaqiang/openwrt-packages . sundaqiang-packages"
     "https://github.com/zxlhhyccc/luci-app-v2raya . luci-app-v2raya"
