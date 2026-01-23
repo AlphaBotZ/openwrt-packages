@@ -12,7 +12,7 @@ SYNC_LIST=(
     "https://github.com/jerrykuku/luci-theme-argon.git . luci-theme-argon"
     "https://github.com/jerrykuku/luci-app-argon-config.git . luci-app-argon-config"
     "https://github.com/rufengsuixing/luci-app-zerotier.git . luci-app-zerotier"
-    "https://github.com/xiaorouji/openwrt-passwall2.git luci-app-passwall2 luci-app-passwall2"
+#    "https://github.com/xiaorouji/openwrt-passwall2.git luci-app-passwall2 luci-app-passwall2"
     "https://github.com/vernesong/OpenClash.git luci-app-openclash luci-app-openclash"
     "https://github.com/sbwml/luci-app-openlist2.git . luci-app-openlist2"
     "https://github.com/sbwml/luci-app-mosdns.git . luci-app-mosdns"
