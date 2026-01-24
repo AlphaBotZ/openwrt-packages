@@ -95,8 +95,12 @@ function act_web_config()
 	local http = require "luci.http"
 	local sys  = require "luci.sys"
 	
-	-- 获取请求方法
+	-- 获取请求方法，支持_method参数模拟POST
 	local method = http.getenv("REQUEST_METHOD") or "GET"
+	local override_method = http.formvalue("_method")
+	if override_method then
+		method = override_method
+	end
 	local yaml_path = "/etc/tvgate/config.yaml"
 
 	-- ================= GET =================
@@ -301,7 +305,7 @@ function act_status()
     end
 
     -- ===== 进程检测（唯一可信来源）=====
-    local running = (sys.call("pidof /usr/bin/tvgate/TVGate >/dev/null") == 0)
+    local running = (sys.call("pidof TVGate >/dev/null") == 0)
 
     local status = {
         running = running,
@@ -324,6 +328,11 @@ function act_download()
 
 	local rc = sys.call("/usr/bin/tvgate-download.sh >/tmp/tvgate-download.log 2>&1")
 	local ok = (rc == 0)
+
+	-- 下载成功后重启服务
+	if ok then
+		sys.exec("/etc/init.d/tvgate reload >/dev/null 2>&1 &")
+	end
 
 	local log = "Log file not found"
 	if fs and fs.access("/tmp/tvgate-download.log") then
