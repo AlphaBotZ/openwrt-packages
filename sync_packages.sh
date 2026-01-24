@@ -223,7 +223,7 @@ if git diff --cached --quiet; then
     echo -e "\n😶 无代码变更，无需提交"
 else
     git commit -m "Auto sync packages: $(date +'%Y-%m-%d %H:%M:%S')"
-    git push origin main  # 若主分支是 master，改为 master
+    git push origin main
     echo -e "\n🚀 代码已推送至自己的仓库"
 fi
 
