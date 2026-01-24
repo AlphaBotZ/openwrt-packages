@@ -119,7 +119,7 @@ SYNC_LIST=(
 #    "https://github.com/xiaorouji/openwrt-passwall . openwrt-passwall"
     "https://github.com/SSSSSimon/tencentcloud-openwrt-plugin-ddns . tencentcloud-openwrt-plugin-ddns"
     "https://github.com/Tencent-Cloud-Plugins/tencentcloud-openwrt-plugin-cos . tencentcloud-openwrt-plugin-cos"
-    "https://github.com/kiddin9/kwrt-packages . kwrt-packages"
+#    "https://github.com/kiddin9/kwrt-packages . kwrt-packages"
     "https://github.com/doushang/luci-app-shortcutmenu . luci-app-shortcutmenu"
     "https://github.com/sbilly/netmaker-openwrt . netmaker-openwrt"
     "https://github.com/gSpotx2f/luci-app-internet-detector . luci-app-internet-detector"
