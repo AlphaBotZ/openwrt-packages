@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include "stun.h"
+
 #define RTSP_DISABLE_TCP_TRANSPORT 0 /* To debug UDP transport, set to 1 */
 
 /* ========== RTSP BUFFER SIZE CONFIGURATION ========== */
@@ -105,6 +107,7 @@ typedef enum {
 
 /* RTSP session structure */
 typedef struct {
+  int initialized; /* Flag: session has been initialized with resources */
   int socket;                /* TCP socket to RTSP server */
   int epoll_fd;              /* Epoll file descriptor for socket registration */
   struct connection_s *conn; /* Connection pointer for fdmap registration */
@@ -148,6 +151,9 @@ typedef struct {
   int server_rtcp_port; /* Server RTCP port */
   char server_source_addr[RTSP_SERVER_HOST_SIZE]; /* Server UDP source address
                                                      for NAT traversal */
+
+  /* STUN NAT traversal state */
+  stun_state_t stun; /* STUN state for discovering mapped UDP port */
 
   /* Statistics */
   uint64_t packets_dropped; /* Packets dropped due to backpressure */
@@ -286,5 +292,21 @@ int rtsp_session_cleanup(rtsp_session_t *session);
  * @return 0 on success, -1 if keepalive could not be queued
  */
 int rtsp_send_keepalive(rtsp_session_t *session);
+
+/**
+ * Advance the RTSP state machine to the next state.
+ * Called after receiving a response or when STUN completes.
+ * @param session RTSP session
+ * @return 0 on success, -1 on error
+ */
+int rtsp_state_machine_advance(rtsp_session_t *session);
+
+/**
+ * Periodic tick for RTSP session (STUN timeout, keepalive)
+ * @param session RTSP session
+ * @param now Current timestamp in milliseconds
+ * @return 0 on success
+ */
+int rtsp_session_tick(rtsp_session_t *session, int64_t now);
 
 #endif /* __RTSP_H__ */

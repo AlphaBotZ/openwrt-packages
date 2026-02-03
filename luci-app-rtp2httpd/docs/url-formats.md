@@ -6,6 +6,8 @@ rtp2httpd 支持多种流媒体协议，通过不同的 URL 前缀进行区分�
 
 当配置了 r2h-token（HTTP 请求认证令牌）时，所有 URL 都需要额外带上参数 `r2h-token=<your token>` 才能访问。
 
+> 除了 URL 参数，也支持通过 Cookie 或者 User Agent 来传递 `r2h-token`。例如 `Cookie: r2h-token=xxx` 或 `User-Agent: R2HTOKEN/xxx`。
+
 ## 组播 RTP 流转换
 
 ```url
@@ -74,6 +76,40 @@ http://192.168.1.1:5140/rtsp/iptv.example.com:554/channel1?seek=20240101120000&r
 
 关于时移回看的参数处理（时区、偏移），详见 [RTSP 时间处理与时区转换](rtsp-time-processing.md)。
 
+## HTTP 代理
+
+```url
+http://服务器地址:端口/http/上游服务器[:端口]/路径[?参数]
+```
+
+**示例**：
+
+```url
+# 代理 HLS 流（指定端口）
+http://192.168.1.1:5140/http/upstream.example.com:8080/live/stream.m3u8
+
+# 代理 HTTP 请求（省略端口，默认 80）
+http://192.168.1.1:5140/http/api.example.com/video?auth=xxx&quality=hd
+```
+
+### 参数说明
+
+- **上游服务器**：目标 HTTP 服务器地址
+- **端口**（可选）：目标服务器端口，默认 80
+- **路径**：请求路径，包括查询参数
+
+### 使用场景
+
+- 代理上游 HLS/DASH 流媒体，统一认证和访问控制
+- 为不支持直接访问的内网服务提供 HTTP 代理
+- 绕过防火墙限制，通过 rtp2httpd 转发 HTTP 请求
+
+### 注意事项
+
+- 仅支持 HTTP 上游（不支持 HTTPS）
+- 可通过 `upstream-interface-http` 配置指定上游网络接口
+- 如果被代理的目标 URL 是 m3u 类型，其中所有 `http://` URL 会被自动改写为经过 rtp2httpd 代理后的地址
+
 ## M3U 播放列表访问
 
 ```url
@@ -110,7 +146,7 @@ http://192.168.1.1:5140/player
 
 访问内置 Web 播放器，可以在网页端播放已配置的 M3U 频道列表。
 
-播放器页面路径可以通过配置项 `player-page-path` 自定义。
+播放器页面路径可以通过配置项 `player-page-path` 自定义。设置为 `/` 可以实现不带任何路径直接访问。
 
 ## 状态页面
 
@@ -131,7 +167,7 @@ http://192.168.1.1:5140/status
 - 系统日志查看
 - 远程管理功能（强制断开连接等）
 
-状态页面路径可以通过配置项 `status-page-path` 自定义。
+状态页面路径可以通过配置项 `status-page-path` 自定义。设置为 `/` 可以实现不带任何路径直接访问。
 
 ## UDPxy 兼容模式
 

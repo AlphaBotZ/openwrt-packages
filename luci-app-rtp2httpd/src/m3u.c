@@ -3,6 +3,7 @@
 #include "epg.h"
 #include "http.h"
 #include "http_fetch.h"
+#include "http_proxy.h"
 #include "md5.h"
 #include "service.h"
 #include "utils.h"
@@ -1161,6 +1162,23 @@ int m3u_parse_and_create_services(const char *content, const char *source_url) {
           append_to_transformed_m3u(line, service_source);
           append_to_transformed_m3u("\n", service_source);
         }
+      } else if (http_proxy_is_proxy_url(line)) {
+        /* HTTP URL: convert to http proxy format without creating a service */
+        char http_proxy_url[MAX_URL_LENGTH];
+
+        append_to_transformed_m3u(transformed_line, service_source);
+        append_to_transformed_m3u("\n", service_source);
+
+        if (http_proxy_build_url(line, M3U_BASE_URL_PLACEHOLDER, http_proxy_url,
+                                 sizeof(http_proxy_url)) == 0) {
+          append_to_transformed_m3u(http_proxy_url, service_source);
+          logger(LOG_DEBUG, "Converted HTTP URL to proxy format: %s", line);
+        } else {
+          /* Failed to build proxy URL, preserve original */
+          append_to_transformed_m3u(line, service_source);
+          logger(LOG_WARN, "Failed to convert HTTP URL: %s", line);
+        }
+        append_to_transformed_m3u("\n", service_source);
       } else {
         /* Unrecognizable URL: preserve original EXTINF and URL completely */
         append_to_transformed_m3u(transformed_line, service_source);
@@ -1226,50 +1244,10 @@ char *m3u_generate_playlist(const char *host_header,
   }
 
   /* Build base URL based on headers and xff config */
-  const char *host = NULL;
-  const char *proto = "http";
-
-  /* Extract protocol from config.hostname if configured */
-  char config_protocol[16] = {0};
-  if (config.hostname && config.hostname[0] != '\0') {
-    /* Parse URL components from config.hostname to extract protocol */
-    if (http_parse_url_components(config.hostname, config_protocol, NULL, NULL,
-                                  NULL) == 0) {
-      /* Successfully parsed - use protocol from config.hostname if present */
-      if (config_protocol[0] != '\0') {
-        proto = config_protocol;
-      }
-    }
-  }
-
-  if (config.xff && x_forwarded_host && x_forwarded_host[0]) {
-    /* Use X-Forwarded-Host when xff is enabled */
-    host = x_forwarded_host;
-    if (x_forwarded_proto && x_forwarded_proto[0]) {
-      /* X-Forwarded-Proto overrides config.hostname protocol */
-      proto = x_forwarded_proto;
-    }
-  } else if (host_header && host_header[0]) {
-    /* Use Host header */
-    host = host_header;
-  }
-
-  if (host) {
-    /* Build base URL from host and proto */
-    size_t url_len = strlen(proto) + 3 + strlen(host) + 2; /* proto://host/ */
-    base_url = malloc(url_len);
-    if (!base_url) {
-      logger(LOG_ERROR, "Failed to allocate base URL");
-      return NULL;
-    }
-    snprintf(base_url, url_len, "%s://%s/", proto, host);
-  } else {
-    /* Fallback to get_server_address */
-    base_url = get_server_address();
-    if (!base_url) {
-      logger(LOG_ERROR, "Failed to get server address for M3U generation");
-      return NULL;
-    }
+  base_url = build_proxy_base_url(host_header, x_forwarded_host, x_forwarded_proto);
+  if (!base_url) {
+    logger(LOG_ERROR, "Failed to build base URL for M3U generation");
+    return NULL;
   }
 
   logger(LOG_DEBUG, "Generating M3U with base URL: %s", base_url);

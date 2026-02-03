@@ -49,10 +49,15 @@ typedef struct {
   char x_forwarded_host[256];
   char x_forwarded_proto[16];
   int x_request_snapshot;
+  char cookie[1024];  /* Cookie header value for r2h-token extraction */
   http_parse_state_t parse_state;
   int content_length;
-  char body[1024];
-  int body_len;
+  char *body;         /* Dynamically allocated based on Content-Length */
+  size_t body_len;    /* Current body length */
+  size_t body_alloc;  /* Allocated size of body buffer */
+  /* Raw headers for proxying - stores all headers except Host, Connection */
+  char raw_headers[4096];
+  size_t raw_headers_len;
 } http_request_t;
 
 /**
@@ -60,6 +65,12 @@ typedef struct {
  * @param req Request structure to initialize
  */
 void http_request_init(http_request_t *req);
+
+/**
+ * Cleanup HTTP request structure (free dynamically allocated memory)
+ * @param req Request structure to cleanup
+ */
+void http_request_cleanup(http_request_t *req);
 
 /**
  * Parse HTTP request from buffer (incremental parsing)
@@ -128,6 +139,29 @@ int http_parse_query_param(const char *query_string, const char *param_name,
  */
 int http_filter_query_param(const char *query_string, const char *exclude_param,
                             char *output, size_t output_size);
+
+/**
+ * Filter Cookie header to remove a specific cookie (case-insensitive name)
+ * Cookie format: "name1=value1; name2=value2; ..."
+ * @param cookie_header Input cookie header value
+ * @param exclude_name Cookie name to exclude (case-insensitive)
+ * @param output Output buffer
+ * @param output_size Output buffer size
+ * @return Length of output string, or -1 on error
+ */
+int http_filter_cookie(const char *cookie_header, const char *exclude_name,
+                       char *output, size_t output_size);
+
+/**
+ * Filter User-Agent header to remove R2HTOKEN/xxx pattern
+ * Format: "... R2HTOKEN/value ..." or "... R2HTOKEN/value"
+ * @param user_agent Input User-Agent header value
+ * @param output Output buffer
+ * @param output_size Output buffer size
+ * @return Length of output string, or -1 on error
+ */
+int http_filter_user_agent_token(const char *user_agent, char *output,
+                                 size_t output_size);
 
 /**
  * Send HTTP 400 Bad Request response

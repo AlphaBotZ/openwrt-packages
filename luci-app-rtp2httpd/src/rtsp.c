@@ -1,4 +1,5 @@
 #include "rtsp.h"
+#include "configuration.h"
 #include "connection.h"
 #include "http.h"
 #include "md5.h"
@@ -49,7 +50,6 @@ static void rtsp_parse_transport_header(rtsp_session_t *session,
                                         const char *transport);
 static void rtsp_send_udp_nat_probe(rtsp_session_t *session);
 static int rtsp_handle_redirect(rtsp_session_t *session, const char *location);
-static int rtsp_state_machine_advance(rtsp_session_t *session);
 static int rtsp_initiate_teardown(rtsp_session_t *session);
 static int rtsp_reconnect_for_teardown(rtsp_session_t *session);
 static void rtsp_force_cleanup(rtsp_session_t *session);
@@ -271,6 +271,7 @@ static int rtsp_build_basic_auth_header(rtsp_session_t *session, char *output,
 
 void rtsp_session_init(rtsp_session_t *session) {
   memset(session, 0, sizeof(rtsp_session_t));
+  session->initialized = 1;
   session->state = RTSP_STATE_INIT;
   session->socket = -1;
   session->epoll_fd = -1;
@@ -318,6 +319,9 @@ void rtsp_session_init(rtsp_session_t *session) {
   session->teardown_requested = 0;
   session->teardown_reconnect_done = 0;
   session->state_before_teardown = RTSP_STATE_INIT;
+
+  /* Initialize STUN state */
+  stun_state_init(&session->stun);
 }
 
 /**
@@ -442,7 +446,8 @@ int rtsp_parse_server_url(rtsp_session_t *session, const char *rtsp_url,
 
   /* Parse rtsp://host:port/path?query format */
   if (strncmp(url_copy, "rtsp://", 7) != 0) {
-    logger(LOG_ERROR, "RTSP: Invalid URL format, must start with rtsp://");
+    logger(LOG_DEBUG, "RTSP: Invalid URL format, must start with rtsp://: %s",
+           rtsp_url);
     return -1;
   }
 
@@ -803,6 +808,21 @@ int rtsp_connect(rtsp_session_t *session) {
   struct hostent *he;
   int connect_result;
   const char *upstream_if;
+
+  /* Start STUN discovery early - before TCP connect
+   * This allows STUN to run in parallel with TCP connection establishment
+   * Only do this on initial connect (not on redirect or reconnect for TEARDOWN)
+   * Check: UDP socket not yet created and STUN not already in progress/completed */
+  if (config.rtsp_stun_server && config.rtsp_stun_server[0] != '\0' &&
+      session->rtp_socket < 0 && !session->stun.in_progress &&
+      !session->stun.completed) {
+    if (rtsp_setup_udp_sockets(session) == 0) {
+      if (stun_send_request(&session->stun, session->rtp_socket) == 0) {
+        logger(LOG_DEBUG,
+               "RTSP: Started STUN discovery before TCP connect");
+      }
+    }
+  }
 
   /* Resolve hostname */
   he = gethostbyname(session->server_host);
@@ -1501,7 +1521,7 @@ static int rtsp_try_receive_response(rtsp_session_t *session) {
  * State machine advancement - initiates next action based on current state
  * Returns: 0 = continue, -1 = error
  */
-static int rtsp_state_machine_advance(rtsp_session_t *session) {
+int rtsp_state_machine_advance(rtsp_session_t *session) {
   char extra_headers[RTSP_HEADERS_BUFFER_SIZE];
 
   switch (session->state) {
@@ -1529,9 +1549,19 @@ static int rtsp_state_machine_advance(rtsp_session_t *session) {
     /* Will send when socket becomes writable */
     return 0;
 
-  case RTSP_STATE_DESCRIBED:
+  case RTSP_STATE_DESCRIBED: {
     /* Ready to send SETUP - first setup UDP sockets if needed */
-    if (rtsp_setup_udp_sockets(session) < 0) {
+    int udp_setup_ok = 0;
+    int advertised_rtp_port, advertised_rtcp_port;
+
+    /* Check if UDP sockets were already created for STUN */
+    if (session->rtp_socket >= 0) {
+      udp_setup_ok = 1;
+    } else if (rtsp_setup_udp_sockets(session) == 0) {
+      udp_setup_ok = 1;
+    }
+
+    if (!udp_setup_ok) {
       logger(
           LOG_DEBUG,
           "RTSP: Failed to setup UDP sockets, will only offer TCP transport");
@@ -1543,14 +1573,44 @@ static int rtsp_state_machine_advance(rtsp_session_t *session) {
                session->rtp_channel, session->rtcp_channel,
                session->rtp_channel, session->rtcp_channel);
     } else {
+      /* Check STUN status and determine which port to advertise */
+      if (session->stun.in_progress) {
+        /* STUN still in progress - check for timeout/retry */
+        stun_check_timeout(&session->stun);
+
+        /* If STUN is still in progress after timeout check, wait for it */
+        if (session->stun.in_progress) {
+          logger(LOG_DEBUG,
+                 "RTSP: Waiting for STUN response before sending SETUP");
+          return 0; /* Stay in DESCRIBED state, will be called again */
+        }
+      }
+
+      /* Use STUN mapped port if available, otherwise use local port */
+      advertised_rtp_port = stun_get_mapped_port(&session->stun);
+      if (advertised_rtp_port > 0) {
+        advertised_rtcp_port = advertised_rtp_port + 1;
+        logger(LOG_DEBUG,
+               "RTSP: Using STUN mapped ports %d-%d for SETUP Transport",
+               advertised_rtp_port, advertised_rtcp_port);
+      } else {
+        advertised_rtp_port = session->local_rtp_port;
+        advertised_rtcp_port = session->local_rtcp_port;
+        if (config.rtsp_stun_server && config.rtsp_stun_server[0] != '\0') {
+          logger(LOG_DEBUG,
+                 "RTSP: STUN timed out, using local ports %d-%d",
+                 advertised_rtp_port, advertised_rtcp_port);
+        }
+      }
+
       if (RTSP_DISABLE_TCP_TRANSPORT) {
         snprintf(extra_headers, sizeof(extra_headers),
                  "Transport: MP2T/RTP/UDP;unicast;client_port=%d-%d,"
                  "MP2T/UDP;unicast;client_port=%d-%d,"
                  "RTP/AVP;unicast;client_port=%d-%d\r\n",
-                 session->local_rtp_port, session->local_rtcp_port,
-                 session->local_rtp_port, session->local_rtcp_port,
-                 session->local_rtp_port, session->local_rtcp_port);
+                 advertised_rtp_port, advertised_rtcp_port,
+                 advertised_rtp_port, advertised_rtcp_port,
+                 advertised_rtp_port, advertised_rtcp_port);
       } else {
         snprintf(extra_headers, sizeof(extra_headers),
                  "Transport: MP2T/RTP/TCP;unicast;interleaved=%d-%d,"
@@ -1562,9 +1622,9 @@ static int rtsp_state_machine_advance(rtsp_session_t *session) {
                  session->rtp_channel, session->rtcp_channel,
                  session->rtp_channel, session->rtcp_channel,
                  session->rtp_channel, session->rtcp_channel,
-                 session->local_rtp_port, session->local_rtcp_port,
-                 session->local_rtp_port, session->local_rtcp_port,
-                 session->local_rtp_port, session->local_rtcp_port);
+                 advertised_rtp_port, advertised_rtcp_port,
+                 advertised_rtp_port, advertised_rtcp_port,
+                 advertised_rtp_port, advertised_rtcp_port);
       }
     }
     if (rtsp_prepare_request(session, RTSP_METHOD_SETUP, extra_headers) < 0) {
@@ -1573,6 +1633,7 @@ static int rtsp_state_machine_advance(rtsp_session_t *session) {
     }
     rtsp_session_set_state(session, RTSP_STATE_SENDING_SETUP);
     return 0;
+  }
 
   case RTSP_STATE_SETUP:
     if (session->r2h_start[0] != '\0') {
@@ -1628,6 +1689,42 @@ static int rtsp_state_machine_advance(rtsp_session_t *session) {
     /* Other states don't need automatic advancement */
     return 0;
   }
+}
+
+int rtsp_session_tick(rtsp_session_t *session, int64_t now) {
+  if (!session || !session->initialized) {
+    return 0;
+  }
+
+  /* Check STUN timeout if waiting for STUN response */
+  if (session->stun.in_progress && session->state == RTSP_STATE_DESCRIBED) {
+    if (stun_check_timeout(&session->stun) > 0) {
+      /* STUN finally timed out, advance state machine to continue with local
+       * port */
+      rtsp_state_machine_advance(session);
+    }
+  }
+
+  /* Send periodic RTSP OPTIONS keepalive when using UDP transport */
+  if (session->state == RTSP_STATE_PLAYING &&
+      session->transport_mode == RTSP_TRANSPORT_UDP &&
+      session->keepalive_interval_ms > 0 && session->session_id[0] != '\0') {
+    if (session->last_keepalive_ms == 0) {
+      session->last_keepalive_ms = now;
+    }
+
+    int64_t keepalive_elapsed = now - session->last_keepalive_ms;
+    if (keepalive_elapsed >= session->keepalive_interval_ms) {
+      int ka_status = rtsp_send_keepalive(session);
+      if (ka_status == 0) {
+        session->last_keepalive_ms = now;
+      } else if (ka_status < 0) {
+        logger(LOG_WARN, "RTSP: Failed to queue OPTIONS keepalive");
+      }
+    }
+  }
+
+  return 0;
 }
 
 int rtsp_handle_tcp_interleaved_data(rtsp_session_t *session,
@@ -1798,6 +1895,29 @@ int rtsp_handle_tcp_interleaved_data(rtsp_session_t *session,
 int rtsp_handle_udp_rtp_data(rtsp_session_t *session, connection_t *conn) {
   int bytes_received;
 
+  /* Check for STUN response if STUN discovery is in progress */
+  if (session->stun.in_progress) {
+    uint8_t peek_buf[20];
+    ssize_t peek_len =
+        recv(session->rtp_socket, peek_buf, sizeof(peek_buf), MSG_PEEK);
+    if (peek_len >= 20 && stun_is_stun_packet(peek_buf, peek_len)) {
+      /* This is a STUN response - read and parse it */
+      uint8_t stun_buf[128];
+      ssize_t stun_len = recv(session->rtp_socket, stun_buf, sizeof(stun_buf), 0);
+      if (stun_len > 0) {
+        if (stun_parse_response(&session->stun, stun_buf, stun_len) == 0) {
+          logger(LOG_INFO, "RTSP: STUN discovery completed, mapped RTP port: %d",
+                 stun_get_mapped_port(&session->stun));
+          /* If state machine was waiting for STUN, advance it now */
+          if (session->state == RTSP_STATE_DESCRIBED) {
+            rtsp_state_machine_advance(session);
+          }
+        }
+      }
+      return 0; /* STUN packet consumed, not RTP data */
+    }
+  }
+
   /* Allocate a fresh buffer from pool for this receive operation */
   buffer_ref_t *rtp_buf = buffer_pool_alloc();
   if (!rtp_buf) {
@@ -1894,8 +2014,9 @@ static void rtsp_force_cleanup(rtsp_session_t *session) {
   session->session_id[0] = '\0';
   session->server_url[0] = '\0';
 
-  /* Mark cleanup as done */
+  /* Mark cleanup as done and reset initialized flag */
   session->cleanup_done = 1;
+  session->initialized = 0;
 
   session->state = RTSP_STATE_INIT;
   logger(LOG_DEBUG, "RTSP: Session cleanup complete");
@@ -1989,6 +2110,11 @@ static int rtsp_initiate_teardown(rtsp_session_t *session) {
  * It will initiate TEARDOWN if in SETUP or PLAYING state
  */
 int rtsp_session_cleanup(rtsp_session_t *session) {
+  /* Skip cleanup if session was never initialized */
+  if (!session->initialized) {
+    return 0; /* Nothing to clean up */
+  }
+
   /* Prevent re-entry: if cleanup already done, skip */
   if (session->cleanup_done) {
     logger(LOG_DEBUG, "RTSP: Cleanup already completed, skipping");

@@ -526,7 +526,6 @@ int worker_run_event_loop(int *listen_sockets, int num_sockets, int notif_fd) {
             } else if (!c->headers_sent && c->state != CONN_CLOSING) {
               /* Send 503 if headers not sent yet (no data ever arrived) */
               http_send_503(c);
-              /* http_send_503 sets CONN_CLOSING, don't force immediate close */
             } else {
               worker_close_and_free_connection(c);
             }
