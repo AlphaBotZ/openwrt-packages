@@ -67,11 +67,6 @@ int stream_process_rtp_payload(stream_context_t *ctx, buffer_ref_t *buf_ref) {
                             ctx->snapshot.initialized, ctx->fec.initialized ? &ctx->fec : NULL);
 }
 
-/*
- * Handle an event-ready fd that belongs to this stream context
- * Note: Client socket events are handled by worker.c,
- * this function only handles media stream sockets (multicast, FCC, RTSP)
- */
 int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
                            int64_t now) {
   /* Process FCC socket events */
@@ -366,26 +361,26 @@ int stream_context_cleanup(stream_context_t *ctx) {
   if (!ctx)
     return 0;
 
-  /* Clean up RTP reorder context */
-  rtp_reorder_cleanup(&ctx->reorder);
-
-  /* Clean up FEC context (fec_cleanup owns the socket cleanup) */
-  fec_cleanup(&ctx->fec, ctx->epoll_fd);
-
   /* Clean up snapshot resources */
   snapshot_free(&ctx->snapshot);
 
   /* Clean up FCC session (always safe to cleanup immediately) */
   fcc_session_cleanup(&ctx->fcc, ctx->service, ctx->epoll_fd);
 
-  /* Clean up RTSP session - this may initiate async TEARDOWN */
-  int rtsp_async = rtsp_session_cleanup(&ctx->rtsp);
+  /* Clean up multicast session */
+  mcast_session_cleanup(&ctx->mcast, ctx->epoll_fd);
 
   /* Clean up HTTP proxy session (always synchronous) */
   http_proxy_session_cleanup(&ctx->http_proxy);
 
-  /* Clean up multicast session */
-  mcast_session_cleanup(&ctx->mcast, ctx->epoll_fd);
+  /* Clean up RTSP session - this may initiate async TEARDOWN */
+  int rtsp_async = rtsp_session_cleanup(&ctx->rtsp);
+
+  /* Clean up FEC context (fec_cleanup owns the socket cleanup) */
+  fec_cleanup(&ctx->fec, ctx->epoll_fd);
+
+  /* Clean up RTP reorder context */
+  rtp_reorder_cleanup(&ctx->reorder);
 
   if (rtsp_async) {
     /* RTSP async TEARDOWN initiated - defer final cleanup */
