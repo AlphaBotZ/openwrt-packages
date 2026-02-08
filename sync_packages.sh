@@ -165,6 +165,7 @@ SYNC_LIST=(
     "https://github.com/EasyTier/luci-app-easytier . luci-app-easytier"
     "https://github.com/qist/luci-app-tvgate . luci-app-tvgate"
     "https://github.com/stackia/rtp2httpd.git . luci-app-rtp2httpd"
+    "https://github.com/LGA1150/openwrt-fullconenat.git . openwrt-fullconenat"
 )
 
 WORK_DIR="/tmp/openwrt_sync"
