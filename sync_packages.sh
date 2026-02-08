@@ -151,6 +151,7 @@ SYNC_LIST=(
     "https://github.com/sirpdboy/luci-app-watchdog . luci-app-watchdog"
     "https://github.com/sirpdboy/luci-app-timecontrol . luci-app-timecontrol"
     "https://github.com/sirpdboy/luci-theme-kucat . luci-theme-kucat"
+    "https://github.com/sirpdboy/luci-app-kucat-config.git . luci-app-kucat-config"
     "https://github.com/muink/openwrt-fastfetch . openwrt-fastfetch"
     "https://github.com/linkease/lcdsimple . lcdsimple"
     "https://github.com/Wulnut/luci-app-suselogin . luci-app-suselogin"
