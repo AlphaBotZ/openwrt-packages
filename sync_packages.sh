@@ -115,7 +115,7 @@ SYNC_LIST=(
     "https://github.com/sbwml/luci-app-qbittorrent . luci-app-qbittorrent"
     "https://github.com/messense/aliyundrive-webdav . aliyundrive-webdav"
     "https://github.com/messense/aliyundrive-fuse . aliyundrive-fuse"
-    "https://github.com/sbwml/luci-app-mosdns . luci-app-mosdns"
+#    "https://github.com/sbwml/luci-app-mosdns . luci-app-mosdns"
 #    "https://github.com/xiaorouji/openwrt-passwall . openwrt-passwall"
     "https://github.com/SSSSSimon/tencentcloud-openwrt-plugin-ddns . tencentcloud-openwrt-plugin-ddns"
     "https://github.com/Tencent-Cloud-Plugins/tencentcloud-openwrt-plugin-cos . tencentcloud-openwrt-plugin-cos"
