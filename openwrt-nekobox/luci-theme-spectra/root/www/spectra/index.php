@@ -1562,6 +1562,8 @@ function searchFilesByName($rootDir, $searchTerm) {
         return $results;
     }
     
+    $searchTermLower = strtolower($searchTerm);
+    
     try {
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($rootDir, RecursiveDirectoryIterator::SKIP_DOTS),
@@ -1581,9 +1583,10 @@ function searchFilesByName($rootDir, $searchTerm) {
             }
             
             $fileName = $file->getFilename();
+            $fileNameLower = strtolower($fileName);
             $isDir = $file->isDir();
             
-            if (fnmatch($searchTerm, $fileName, FNM_CASEFOLD)) {
+            if (strpos($fileNameLower, $searchTermLower) !== false) {
                 $results[] = [
                     'name' => $fileName,
                     'path' => $filePath,
@@ -1593,7 +1596,8 @@ function searchFilesByName($rootDir, $searchTerm) {
                     'size_formatted' => formatFileSize($isDir ? 0 : $file->getSize()),
                     'modified' => $file->getMTime(),
                     'modified_formatted' => date('Y-m-d H:i:s', $file->getMTime()),
-                    'extension' => $isDir ? '' : strtolower($file->getExtension())
+                    'extension' => $isDir ? '' : strtolower($file->getExtension()),
+                    'matched_part' => highlightMatch($fileName, $searchTerm)
                 ];
                 
                 if (count($results) >= 100) break;
@@ -1603,6 +1607,21 @@ function searchFilesByName($rootDir, $searchTerm) {
     }
     
     return $results;
+}
+
+function highlightMatch($fileName, $searchTerm) {
+    $position = stripos($fileName, $searchTerm);
+    if ($position !== false) {
+        $before = substr($fileName, 0, $position);
+        $match = substr($fileName, $position, strlen($searchTerm));
+        $after = substr($fileName, $position + strlen($searchTerm));
+        return [
+            'before' => $before,
+            'match' => $match,
+            'after' => $after
+        ];
+    }
+    return null;
 }
 
 function copyDirectory($source, $dest) {
@@ -3147,6 +3166,7 @@ body {
     background: var(--bg-container) !important;
     transition: transform 0.3s ease !important;
     border: none !important;
+    color: var(--text-primary) !important;
 }
 
 .card:hover {
@@ -3716,6 +3736,24 @@ list-group:hover {
     min-width: 100px;
 }
 
+.rename-select {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: var(--border-strong);
+}
+
+.form-select {
+    background-color: var(--card-bg);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23000' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E") !important;
+    padding-right: 2rem;
+    border: var(--border-strong);
+    color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] .form-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23fff' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E") !important;
+}
+
 .simple-editor {
     width: 100%;
     height: 100%;
@@ -3980,6 +4018,15 @@ list-group:hover {
     text-align: center;
     margin-right: 12px;
     display: inline-block;
+}
+
+.table-transparent {
+    --bs-table-bg: transparent !important;
+    background-color: transparent !important;
+}
+
+.table>:not(caption)>*>* {
+    color: var(--text-primary) !important;
 }
 </style>
 <div class="main-container">
@@ -4401,18 +4448,6 @@ list-group:hover {
                             $file = basename($path);
                             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                             $size = $item['size'];
-                            
-                            $duration = $bitrate = '';
-                            $ffmpegPath = '/usr/bin/ffmpeg';
-                            $cmd = "$ffmpegPath -i \"$path\" 2>&1";
-                            $output = shell_exec($cmd);
-                            
-                            if ($output) {
-                                preg_match('/Duration:\s*(\d+):(\d+):(\d+)/', $output, $matches) && $duration = sprintf("%02d:%02d:%02d", $matches[1], $matches[2], $matches[3]);
-                                (preg_match('/bitrate:\s*(\d+)\s*kb\/s/', $output, $matches) || preg_match('/Stream.*Audio:.*?(\d+)\s*kb\/s/', $output, $matches)) && $bitrate = $matches[1] . ' kbps';
-                            } else {
-                                $duration = $bitrate = 'Unknown';
-                            }
                         ?>
                         <div class="media-item hover-playable" 
                              data-type="audio"
@@ -4424,7 +4459,7 @@ list-group:hover {
                              data-resolution="N/A"
                              data-ext="<?= strtoupper($item['ext']) ?>"
                              onclick="playMedia('<?= $item['safe_path'] ?>')"
-                             oncontextmenu="showMediaInfo(event, this)">
+                             oncontextmenu="showFileInfoModal('<?= $item['safe_path'] ?>'); return false;">
                             <div class="media-thumb"><i class="fas fa-music"></i></div>
                             <div class="media-info">
                                 <div class="media-name" title="<?= htmlspecialchars($item['safe_name'], ENT_QUOTES, 'UTF-8') ?>">
@@ -4461,19 +4496,6 @@ list-group:hover {
                             $file = basename($path);
                             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                             $size = $item['size'];
-                            
-                            $duration = $bitrate = $resolution = '';
-                            $ffmpegPath = '/usr/bin/ffmpeg';
-                            $cmd = "$ffmpegPath -i \"$path\" 2>&1";
-                            $output = shell_exec($cmd);
-                            
-                            if ($output) {
-                                preg_match('/Duration:\s*(\d+):(\d+):(\d+)/', $output, $matches) && $duration = sprintf("%02d:%02d:%02d", $matches[1], $matches[2], $matches[3]);
-                                (preg_match('/bitrate:\s*(\d+)\s*kb\/s/', $output, $matches) || preg_match('/Stream.*Video:.*?(\d+)\s*kb\/s/', $output, $matches)) && $bitrate = $matches[1] . ' kbps';
-                                preg_match('/(\d{3,4})x(\d{3,4})/', $output, $matches) && $resolution = $matches[1] . 'x' . $matches[2];
-                            } else {
-                                $duration = $bitrate = $resolution = 'Unknown';
-                            }
 
                             $previewUrl = "?preview=1&path=" . urlencode($item['path']);
                         ?>
@@ -4487,7 +4509,7 @@ list-group:hover {
                              data-resolution="<?= $resolution ?>"
                              data-ext="<?= strtoupper($item['ext']) ?>"
                              onclick="playMedia('<?= $item['safe_path'] ?>')"
-                             oncontextmenu="showMediaInfo(event, this)">
+                             oncontextmenu="showFileInfoModal('<?= $item['safe_path'] ?>'); return false;">
                              <div class="media-thumb">
                                  <video class="video-thumbnail" 
                                      preload="metadata"
@@ -4539,11 +4561,7 @@ list-group:hover {
                             $path = $item['path'];
                             $file = basename($path);
                             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-                            $size = $item['size'];
-                            
-                            $resolution = 'Unknown';
-                            $imageInfo = @getimagesize($path);
-                            $imageInfo && $resolution = $imageInfo[0] . 'x' . $imageInfo[1];
+                            $size = $item['size'];                            
                         ?>
                         <div class="media-item" 
                              data-type="image"
@@ -4555,7 +4573,7 @@ list-group:hover {
                              data-resolution="<?= $resolution ?>"
                              data-ext="<?= strtoupper($item['ext']) ?>"
                              onclick="playMedia('<?= $item['safe_path'] ?>')"
-                             oncontextmenu="showMediaInfo(event, this)">
+                             oncontextmenu="showFileInfoModal('<?= $item['safe_path'] ?>'); return false;">
                             <div class="media-thumb">
                                 <img src="?preview=1&path=<?= urlencode($item['path']) ?>" 
                                      alt="<?= $item['safe_name'] ?>"
@@ -4771,55 +4789,7 @@ list-group:hover {
     </div>
 </div>
 
-<div id="mediaContextMenu" class="context-menu" style="display: none;">
-    <div class="context-menu-header">
-        <i class="fas fa-info-circle"></i>
-        <span data-translate="media_info">Media Info</span>
-        <button class="btn-close" onclick="hideContextMenu()"></button>
-    </div>
-    <div class="context-menu-content">
-        <div class="info-item">
-            <span class="info-label" data-translate="filename">Name:</span>
-            <span class="info-value" id="infoFilename"></span>
-        </div>
-        <div class="info-item">
-            <span class="info-label" data-translate="filesize">Size:</span>
-            <span class="info-value" id="infoFilesize"></span>
-        </div>
-        <div class="info-item">
-            <span class="info-label" data-translate="type">Type:</span>
-            <span class="info-value" id="infoType"></span>
-        </div>
-        <div class="info-item" id="durationItem">
-            <span class="info-label" data-translate="duration">Duration:</span>
-            <span class="info-value" id="infoDuration"></span>
-        </div>
-        <div class="info-item" id="resolutionItem">
-            <span class="info-label" data-translate="resolution">Resolution:</span>
-            <span class="info-value" id="infoResolution"></span>
-        </div>
-        <div class="info-item" id="bitrateItem">
-            <span class="info-label" data-translate="bitrate">Bitrate:</span>
-            <span class="info-value" id="infoBitrate"></span>
-        </div>
-        <div class="info-item">
-            <span class="info-label" data-translate="file_path">Path:</span>
-            <span class="info-value" id="infoPath"></span>
-        </div>
-    </div>
-    <div class="context-menu-actions d-flex flex-row-reverse">
-        <button class="btn btn-primary" onclick="playSelectedMedia()">
-            <i class="fas fa-play"></i>
-            <span data-translate="play">Play</span>
-        </button>
-        <button class="btn btn-dark-red" onclick="closeContextMenu()">
-            <i class="fas fa-times"></i>
-            <span data-translate="close">Close</span>
-        </button>
-    </div>
-</div>
-
-<div id="contextMenuOverlay" class="context-menu-overlay" style="display: none;" onclick="hideContextMenu()"></div>
+<div id="contextMenuOverlay" class="context-menu-overlay" style="display: none;" onclick="hideFileContextMenu()"></div>
 
 <div id="fileContextMenu" class="context-menu context-menu-file" style="display: none;">
     <div class="context-menu-header">
@@ -4899,6 +4869,11 @@ list-group:hover {
             <span data-translate="rename">Rename</span>
             <span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">F2</span>
         </div>
+        <div class="menu-item" id="fileBatchRenameItem" onclick="showBatchRenameDialog()">
+            <i class="fas fa-i-cursor me-2" style="color:#9C27B0;"></i>
+            <span data-translate="batch_rename">Batch Rename</span>
+            <span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">Ctrl+B</span>
+        </div>
         <div class="menu-item" id="fileDeleteItem" onclick="contextMenuDelete()">
             <i class="fas fa-trash me-2" style="color:#E53935;"></i>
             <span data-translate="delete">Delete</span>
@@ -4965,7 +4940,7 @@ list-group:hover {
                 <div class="mb-3">
                     <div class="input-group">
                         <input type="text" id="searchInput" class="form-control" 
-                               data-translate-placeholder="search_placeholder"
+                               data-translate-placeholder="search_empty_input"
                                placeholder="Enter file name or use * wildcard (e.g.: *.mp3)"
                                autofocus>
                         <button class="btn btn-primary" type="button" onclick="searchFiles()">
@@ -5588,6 +5563,78 @@ list-group:hover {
     </div>
 </div>
 
+<div class="modal fade" id="batchRenameModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-i-cursor me-2"></i><span data-translate="batch_rename">Batch Rename</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="card shadow-sm">
+                        <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="fas fa-folder-open me-2"></i>
+                                <span data-translate="selected_files">Selected Files</span>
+                            </div>
+                            <span class="badge bg-primary" id="selectedFilesCount">0</span>
+                        </div>
+                        <div class="card-body p-2">
+                            <div id="batchRenameFileList" class="list-group list-group-flush" style="max-height:150px; overflow-y:auto;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="renamePattern" class="form-label" data-translate="rename_pattern">Rename Pattern:</label>
+                        <input type="text" class="form-control  mb-2" id="renamePattern" placeholder="Prefix_{n}_Suffix" value="File_{n}">
+                        <small class="text-muted" data-translate="pattern_hint">Use {n} for number, {name} for original name, {ext} for extension</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="startNumber" class="form-label" data-translate="start_number">Start Number:</label>
+                        <input type="number" class="form-control" id="startNumber" value="1" min="1" max="9999">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="numberPadding" class="form-label" data-translate="number_padding">Number Padding:</label>
+                        <select class="form-select" id="numberPadding">
+                            <option value="1">1</option>
+                            <option value="2" selected>2 (01, 02...)</option>
+                            <option value="3">3 (001, 002...)</option>
+                            <option value="4">4 (0001, 0002...)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="keepOriginalName" checked>
+                        <label class="form-check-label" for="keepOriginalName" data-translate="keep_original_name">Keep original name part (use {name} in pattern)</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="removeSpecialChars" checked>
+                        <label class="form-check-label" for="removeSpecialChars" data-translate="remove_special_chars">Remove special characters (#, spaces, emoji) from names</label>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="card shadow-sm">
+                        <div class="card-header fw-bold">
+                            <i class="fas fa-eye me-2"></i>
+                            <span data-translate="preview">Preview</span>
+                        </div>
+                        <div class="card-body p-2">
+                            <div id="batchRenamePreview" class="list-group list-group-flush" style="max-height:200px; overflow-y:auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times me-1"></i><span data-translate="cancel">Cancel</span></button>
+                <button type="button" class="btn btn-primary" onclick="executeBatchRename()"><i class="fas fa-check me-1"></i><span data-translate="rename">Rename</span></button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let selectedMediaElement = null;
 let selectedMediaPath = '';
@@ -6119,88 +6166,6 @@ function toggleFullscreen() {
         }
     }
 }
-
-function showMediaInfo(event, element) {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    selectedMediaElement = element;
-    selectedMediaPath = element.getAttribute('data-src') ? 
-        element.getAttribute('data-src').split('path=')[1] : '';
-    
-    const filename = element.getAttribute('data-filename') || 'Unknown';
-    const filesize = element.getAttribute('data-filesize') || 'Unknown';
-    const type = element.getAttribute('data-type') || 'Unknown';
-    const duration = element.getAttribute('data-duration') || 'N/A';
-    const resolution = element.getAttribute('data-resolution') || 'N/A';
-    const bitrate = element.getAttribute('data-bitrate') || 'N/A';
-    const fileExt = element.getAttribute('data-ext') || 'Unknown';
-    
-    const fullPath = element.getAttribute('data-src') ? 
-        decodeURIComponent(element.getAttribute('data-src').split('path=')[1]) : 'Unknown';
-        document.getElementById('infoFilename').textContent = filename;
-        document.getElementById('infoFilesize').textContent = filesize;
-        document.getElementById('infoType').textContent = `${type} (${fileExt})`;
-        document.getElementById('infoDuration').textContent = duration;
-        document.getElementById('infoResolution').textContent = resolution;
-        document.getElementById('infoBitrate').textContent = bitrate;
-        document.getElementById('infoPath').textContent = fullPath;
-   
-    const durationItem = document.getElementById('durationItem');
-    const resolutionItem = document.getElementById('resolutionItem');
-    const bitrateItem = document.getElementById('bitrateItem');
-    
-    if (type === 'audio') {
-        durationItem.style.display = 'flex';
-        resolutionItem.style.display = 'none';
-        bitrateItem.style.display = 'flex';
-    } else if (type === 'video') {
-        durationItem.style.display = 'flex';
-        resolutionItem.style.display = 'flex';
-        bitrateItem.style.display = 'flex';
-    } else if (type === 'image') {
-        durationItem.style.display = 'none';
-        resolutionItem.style.display = 'flex';
-        bitrateItem.style.display = 'none';
-    }
-    
-    document.getElementById('mediaContextMenu').style.display = 'block';
-    document.getElementById('contextMenuOverlay').style.display = 'block';
-}
-
-function hideContextMenu() {
-    document.getElementById('mediaContextMenu').style.display = 'none';
-    document.getElementById('contextMenuOverlay').style.display = 'none';
-    selectedMediaElement = null;
-    selectedMediaPath = '';
-}
-
-function playSelectedMedia() {
-    if (selectedMediaPath) {
-        const safePath = decodeURIComponent(selectedMediaPath);
-        playMedia(safePath);
-    } else if (selectedMediaElement) {
-        const clickEvent = new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        });
-        selectedMediaElement.dispatchEvent(clickEvent);
-    }
-    hideContextMenu();
-}
-
-function closeContextMenu() {
-    hideContextMenu();
-}
-
-
-document.addEventListener('contextmenu', function(e) {
-    const contextMenu = document.getElementById('mediaContextMenu');
-    if (contextMenu.style.display === 'block') {
-        e.preventDefault();
-    }
-}); 
 
 document.addEventListener('click', function() {
     if (!userInteracted) {
@@ -7050,16 +7015,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (playerArea) {
         observer.observe(playerArea, { attributes: true });
     }
-
-    document.addEventListener('click', function(e) {
-        const contextMenu = document.getElementById('mediaContextMenu');
-        const overlay = document.getElementById('contextMenuOverlay');
-        if (contextMenu.style.display === 'block' && 
-            !contextMenu.contains(e.target) && 
-            !overlay.contains(e.target)) {
-            hideContextMenu();
-        }
-    });
 });
 
 document.addEventListener('keydown', function(event) {
@@ -7402,12 +7357,15 @@ function initDragSelect() {
     }
     
     fileGrid.addEventListener('mousedown', function(e) {
+        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        
         if (e.target === fileGrid || e.target.classList.contains('empty-folder') || 
             e.target.parentElement === fileGrid || e.target === dragBox) {
             
             isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
+            startX = e.clientX + scrollLeft;
+            startY = e.clientY + scrollTop;
             
             dragBox.style.left = startX + 'px';
             dragBox.style.top = startY + 'px';
@@ -7432,10 +7390,16 @@ function initDragSelect() {
         
         e.preventDefault();
         
-        const left = Math.min(startX, e.clientX);
-        const top = Math.min(startY, e.clientY);
-        const width = Math.abs(startX - e.clientX);
-        const height = Math.abs(startY - e.clientY);
+        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        
+        const currentX = e.clientX + scrollLeft;
+        const currentY = e.clientY + scrollTop;
+        
+        const left = Math.min(startX, currentX);
+        const top = Math.min(startY, currentY);
+        const width = Math.abs(startX - currentX);
+        const height = Math.abs(startY - currentY);
         
         dragBox.style.left = left + 'px';
         dragBox.style.top = top + 'px';
@@ -7443,10 +7407,10 @@ function initDragSelect() {
         dragBox.style.height = height + 'px';
         
         const dragRect = {
-            left: left,
-            top: top,
-            right: left + width,
-            bottom: top + height
+            left: left - scrollLeft,
+            top: top - scrollTop,
+            right: left + width - scrollLeft,
+            bottom: top + height - scrollTop
         };
         
         const fileItems = fileGrid.querySelectorAll('.file-item');
@@ -7460,11 +7424,7 @@ function initDragSelect() {
             const path = item.getAttribute('data-path');
             
             if (isOverlap) {
-                if (e.ctrlKey || e.metaKey) {
-                    selectedFiles.add(path);
-                } else {
-                    selectedFiles.add(path);
-                }
+                selectedFiles.add(path);
                 item.classList.add('drag-selected');
             } else {
                 if (!e.ctrlKey && !e.metaKey) {
@@ -7535,6 +7495,7 @@ function handleRightClick(event) {
         showMenuItem('fileCopyItem');
         showMenuItem('fileCopyPathItem');
         showMenuItem('fileRenameItem');
+        document.getElementById('fileBatchRenameItem').style.display = 'flex';
         showMenuItem('fileDeleteItem');
         showMenuItem('fileChmodItem');
         showMenuItem('filePropertiesItem');
@@ -7592,6 +7553,7 @@ function handleRightClick(event) {
         showMenuItem('emptyUploadItem');
         showMenuItem('emptyRefreshItem');
         showMenuItem('emptySelectAllItem');
+        document.getElementById('fileBatchRenameItem').style.display = 'none';
     }
     
     updatePasteMenuState();
@@ -8224,7 +8186,7 @@ function hideAllContextMenuItems() {
         'fileDeleteItem', 'fileChmodItem', 'filePropertiesItem', 'fileTerminalItem',
         'emptyNewFolderItem', 'emptyNewFileItem', 'emptyUploadItem',
         'emptyRefreshItem', 'emptySelectAllItem', 'fileCopyPathItem',
-        'globalPasteItem',
+        'globalPasteItem', 'fileBatchRenameItem',
         'archiveMenuItem',
         'fileInstallItem', 'fileHashItem'
     ];
@@ -9740,7 +9702,8 @@ async function searchFiles() {
             header.className = 'alert alert-info mb-3';
             header.innerHTML = `
                 <i class="fas fa-info-circle me-2"></i>
-                ${foundMessage}
+                <strong>"${escapeHtml(searchTerm)}"</strong> ${translations['search_results_for'] || 'search results for'}
+                <span class="badge bg-primary ms-2">${results.length}</span>
             `;
             resultsContainer.appendChild(header);
             
@@ -9770,31 +9733,65 @@ async function searchFiles() {
                 let displayPath = file.path;
                 if (displayPath.startsWith('//')) displayPath = displayPath.substring(1);
                 
+                let fileNameDisplay = escapeHtml(file.name);
+                if (file.matched_part) {
+                    fileNameDisplay = `${escapeHtml(file.matched_part.before)}<span class="bg-warning text-dark">${escapeHtml(file.matched_part.match)}</span>${escapeHtml(file.matched_part.after)}`;
+                } else {
+                    const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+                    fileNameDisplay = escapeHtml(file.name).replace(regex, '<span class="bg-warning text-dark">$1</span>');
+                }
+
+                const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+                const fileExt = file.name.split('.').pop().toLowerCase();
+                const isMedia = mediaExts.includes(fileExt);
+                
                 item.innerHTML = `
                     <div class="d-flex align-items-center">
                         <div class="me-3">
                             <i class="fas ${file.is_dir ? 'fa-folder text-warning' : 'fa-file text-primary'} fa-lg"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="fw-medium">${escapeHtml(file.name)}</div>
+                            <div class="fw-medium">${fileNameDisplay}</div>
                             <div class="small text-muted">
                                 <span>${file.size_formatted}</span>
                                 <span class="mx-2">•</span>
                                 <span>${file.modified_formatted}</span>
                             </div>
                             <div class="small">
-                                <code class="text-truncate d-block" style="max-width: 500px;">
+                                <code class="text-truncate d-block" style="max-width: 500px; color: var(--text-secondary);">
                                     ${escapeHtml(displayPath)}
                                 </code>
                             </div>
                         </div>
                         <div>
-                            <button class="btn btn-sm btn-outline-primary" 
-                                    onclick="openFileDirectory('${escapeHtml(file.path)}', ${file.is_dir})"
-                                    style="white-space: nowrap;">
-                                <i class="fas fa-folder-open"></i>
-                                ${translations['search_open_directory'] || 'Open Directory'}
-                            </button>
+                            <div class="d-flex gap-2">
+                                ${!file.is_dir ? `
+                                    ${isMedia ? `
+                                        <button class="btn btn-sm btn-outline-info" 
+                                                onclick="closeSearchModalAndPlay('${escapeHtml(file.path)}')"
+                                                style="white-space: nowrap;"
+                                                title="${translations['play'] || 'Play'}">
+                                            <i class="fas fa-play"></i>
+                                            <span class="d-none d-md-inline">${translations['play'] || 'Play'}</span>
+                                        </button>
+                                    ` : `
+                                        <button class="btn btn-sm btn-outline-success" 
+                                                onclick="closeSearchModalAndEdit('${escapeHtml(file.path)}')"
+                                                style="white-space: nowrap;"
+                                                title="${translations['edit_file'] || 'Edit File'}">
+                                            <i class="fas fa-edit"></i>
+                                            <span class="d-none d-md-inline">${translations['edit'] || 'Edit'}</span>
+                                        </button>
+                                    `}
+                                ` : ''}
+                                <button class="btn btn-sm btn-outline-primary" 
+                                        onclick="openFileDirectory('${escapeHtml(file.path)}', ${file.is_dir})"
+                                        style="white-space: nowrap;"
+                                        title="${translations['search_open_directory'] || 'Open Directory'}">
+                                    <i class="fas fa-folder-open"></i>
+                                    <span class="d-none d-md-inline">${translations['search_open_directory'] || 'Open Directory'}</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -9825,6 +9822,32 @@ async function searchFiles() {
                 ${errorMessage}
             </div>`;
     }
+}
+
+function closeSearchModalAndPlay(path) {
+    const searchModal = bootstrap.Modal.getInstance(document.getElementById('searchModal'));
+    if (searchModal) {
+        searchModal.hide();
+    }
+    
+    setTimeout(() => {
+        playMedia(path);
+    }, 300);
+}
+
+function closeSearchModalAndEdit(path) {
+    const searchModal = bootstrap.Modal.getInstance(document.getElementById('searchModal'));
+    if (searchModal) {
+        searchModal.hide();
+    }
+    
+    setTimeout(() => {
+        editFile(path);
+    }, 300);
+}
+
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function openFileDirectory(filePath, isDir) {
@@ -10324,6 +10347,21 @@ function setupSimpleEditorEvents(tabId) {
     const newEditor = simpleEditor.cloneNode(true);
     simpleEditor.parentNode.replaceChild(newEditor, simpleEditor);
     
+    function updateCursorPosition() {
+        const cursorPos = newEditor.selectionStart;
+        const text = newEditor.value.substring(0, cursorPos);
+        const lines = text.split('\n');
+        const line = lines.length;
+        const column = lines[lines.length - 1].length + 1;
+        
+        const positionElement = document.getElementById(`${tabId}-position-info`);
+        if (positionElement) {
+            const lineText = translations['line_label'] || 'Line';
+            const columnText = translations['column_label'] || 'Column';
+            positionElement.textContent = `${lineText}: ${line}, ${columnText}: ${column}`;
+        }
+    }
+    
     newEditor.addEventListener('input', function() {
         const tab = editorTabs.find(t => t.id === tabId);
         if (tab) {
@@ -10338,7 +10376,13 @@ function setupSimpleEditorEvents(tabId) {
         this.style.height = (this.scrollHeight + 10) + 'px';
         
         updateCharCount(tabId);
+        updateCursorPosition();
     });
+    
+    newEditor.addEventListener('click', updateCursorPosition);
+    newEditor.addEventListener('keyup', updateCursorPosition);
+    newEditor.addEventListener('select', updateCursorPosition);
+    newEditor.addEventListener('mouseup', updateCursorPosition);
     
     newEditor.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
@@ -10349,8 +10393,12 @@ function setupSimpleEditorEvents(tabId) {
             this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
             this.selectionStart = this.selectionEnd = start + 4;
             this.dispatchEvent(new Event('input'));
+            
+            setTimeout(updateCursorPosition, 10);
         }
     });
+    
+    setTimeout(updateCursorPosition, 100);
 }
 
 async function initMonacoEditor(tabId) {
@@ -12199,7 +12247,7 @@ function resetRightEditor() {
     const leftContent = originalEditor.getValue();
     modifiedEditor.setValue(leftContent);
     
-    showMessage(
+    showLogMessage(
         translations['diff_reset_right_success'] || 'Right content has been reset to match the left',
         'info'
     );
@@ -12214,7 +12262,7 @@ function copyRightToLeft() {
     const rightContent = modifiedEditor.getValue();
     originalEditor.setValue(rightContent);
     
-    showMessage(
+    showLogMessage(
         translations['diff_apply_to_left_success'] || 'Right content has been applied to the left',
         'success'
     );
@@ -12247,11 +12295,6 @@ function saveLeftEditor(tabId) {
     
     updateEditorTabsUI();
     
-    showMessage(
-        translations['diff_left_saved_success'] || 'Left content has been saved to the original file',
-        'success'
-    );
-    
     const modal = bootstrap.Modal.getInstance(
         document.getElementById('diffEditorModal')
     );
@@ -12259,9 +12302,7 @@ function saveLeftEditor(tabId) {
         modal.hide();
     }
     
-    setTimeout(() => {
-        saveEditorContent(tabId);
-    }, 500);
+    saveEditorContent(tabId);
 }
 
 function formatFileSize(bytes) {
@@ -12778,6 +12819,226 @@ document.getElementById('installModal').addEventListener('hidden.bs.modal', func
     document.getElementById('installProgress').style.width = '0%';
     document.getElementById('installProgressText').textContent = '0%';
 });
+
+let batchRenameFiles = [];
+
+function showBatchRenameDialog() {
+    if (selectedFiles.size === 0) {
+        showLogMessage(translations['select_files_to_rename'] || 'Please select files to rename', 'warning');
+        return;
+    }
+    
+    batchRenameFiles = Array.from(selectedFiles).map(path => {
+        const fileItem = document.querySelector(`.file-item[data-path="${path}"]`);
+        const name = path.split('/').pop();
+        const isDir = fileItem ? fileItem.getAttribute('data-is-dir') === 'true' : false;
+        const ext = name.includes('.') ? name.split('.').pop() : '';
+        const nameWithoutExt = name.includes('.') ? name.substring(0, name.lastIndexOf('.')) : name;
+        
+        return {
+            path: path,
+            name: name,
+            nameWithoutExt: nameWithoutExt,
+            ext: ext,
+            isDir: isDir,
+            dir: path.substring(0, path.lastIndexOf('/')) || '/'
+        };
+    });
+    
+    batchRenameFiles.sort((a, b) => a.name.localeCompare(b.name));
+    
+    updateBatchRenameFileList();
+    
+    document.getElementById('renamePattern').removeEventListener('input', generateBatchRenamePreview);
+    document.getElementById('startNumber').removeEventListener('input', generateBatchRenamePreview);
+    document.getElementById('numberPadding').removeEventListener('change', generateBatchRenamePreview);
+    document.getElementById('keepOriginalName').removeEventListener('change', generateBatchRenamePreview);
+    document.getElementById('removeSpecialChars').removeEventListener('change', generateBatchRenamePreview);
+    
+    document.getElementById('renamePattern').addEventListener('input', generateBatchRenamePreview);
+    document.getElementById('startNumber').addEventListener('input', generateBatchRenamePreview);
+    document.getElementById('numberPadding').addEventListener('change', generateBatchRenamePreview);
+    document.getElementById('keepOriginalName').addEventListener('change', generateBatchRenamePreview);
+    document.getElementById('removeSpecialChars').addEventListener('change', generateBatchRenamePreview);
+    
+    generateBatchRenamePreview();
+    
+    hideFileContextMenu();
+    
+    const modal = new bootstrap.Modal(document.getElementById('batchRenameModal'));
+    modal.show();
+}
+
+function updateBatchRenameFileList() {
+    const listContainer = document.getElementById('batchRenameFileList');
+    if (!listContainer) return;
+    
+    let html = '';
+    batchRenameFiles.forEach((file, index) => {
+        const icon = file.isDir ? 'fa-folder' : 'fa-file';
+        const color = file.isDir ? '#FFA726' : '#2196F3';
+        html += `
+        <div class="px-2 py-1 d-flex align-items-center" style="border-bottom: var(--border-strong);">
+            <span class="badge bg-secondary me-2" style="min-width: 30px;">${index + 1}</span>
+            <i class="fas ${icon} me-2" style="color: ${color};"></i>
+            <span style="word-break: break-all;" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+        </div>`;
+    });
+    listContainer.innerHTML = html;
+    
+    const countBadge = document.getElementById('selectedFilesCount');
+    if (countBadge) {
+        countBadge.textContent = batchRenameFiles.length;
+    }
+}
+
+function removeSpecialCharsFromName(name) {
+    const emojiRegex = /[\u{1F600}-\u{1F64F}|\u{1F300}-\u{1F5FF}|\u{1F680}-\u{1F6FF}|\u{1F700}-\u{1F77F}|\u{1F780}-\u{1F7FF}|\u{1F800}-\u{1F8FF}|\u{1F900}-\u{1F9FF}|\u{1FA00}-\u{1FA6F}|\u{1FA70}-\u{1FAFF}|\u{2600}-\u{26FF}|\u{2700}-\u{27BF}|\u{2B00}-\u{2BFF}|\u{2E00}-\u{2E7F}]/gu;
+    name = name.replace(emojiRegex, '');
+    name = name.replace(/[#\s]/g, '_');
+    name = name.replace(/_+/g, '_');
+    name = name.replace(/^_+|_+$/g, '');
+    return name;
+}
+
+function generateBatchRenamePreview() {
+    const pattern = document.getElementById('renamePattern').value;
+    const startNum = parseInt(document.getElementById('startNumber').value) || 1;
+    const padding = parseInt(document.getElementById('numberPadding').value);
+    const keepOriginalName = document.getElementById('keepOriginalName').checked;
+    const removeSpecialChars = document.getElementById('removeSpecialChars').checked;
+    
+    const previewContainer = document.getElementById('batchRenamePreview');
+    if (!previewContainer) return;
+    
+    let html = '<table class="table table-sm table-borderless table-transparent">';
+    html += '<thead><tr><th>#</th><th>' + (translations['original_name'] || 'Original') + '</th><th>→</th><th>' + (translations['new_name'] || 'New') + '</th></tr></thead><tbody>';
+    
+    batchRenameFiles.forEach((file, index) => {
+        const num = startNum + index;
+        const paddedNum = num.toString().padStart(padding, '0');
+        
+        let newName = pattern
+            .replace(/{n}/g, paddedNum)
+            .replace(/{name}/g, keepOriginalName ? file.nameWithoutExt : '')
+            .replace(/{ext}/g, file.ext);
+        
+        if (!keepOriginalName) {
+            newName = newName.replace(/{name}/g, '');
+        }
+        
+        if (removeSpecialChars) {
+            newName = removeSpecialCharsFromName(newName);
+        }
+        
+        if (file.ext && !newName.endsWith('.' + file.ext)) {
+            newName = newName + (newName ? '.' : '') + file.ext;
+        }
+        
+        newName = newName.replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+        
+        if (!newName) {
+            newName = 'file_' + paddedNum + (file.ext ? '.' + file.ext : '');
+        }
+        
+        const icon = file.isDir ? 'fa-folder' : 'fa-file';
+        const color = file.isDir ? '#FFA726' : '#2196F3';
+        
+        html += `<tr>
+            <td><span class="badge bg-secondary">${index + 1}</span></td>
+            <td><i class="fas ${icon} me-1" style="color: ${color};"></i> ${escapeHtml(file.name)}</td>
+            <td><i class="fas fa-arrow-right text-success"></i></td>
+            <td><i class="fas ${icon} me-1" style="color: ${color};"></i> ${escapeHtml(newName)}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    previewContainer.innerHTML = html;
+}
+
+async function executeBatchRename() {
+    const pattern = document.getElementById('renamePattern').value;
+    const startNum = parseInt(document.getElementById('startNumber').value) || 1;
+    const padding = parseInt(document.getElementById('numberPadding').value);
+    const keepOriginalName = document.getElementById('keepOriginalName').checked;
+    const removeSpecialChars = document.getElementById('removeSpecialChars').checked;
+    
+    if (!pattern) {
+        showLogMessage(translations['enter_rename_pattern'] || 'Please enter rename pattern', 'warning');
+        return;
+    }
+    
+    bootstrap.Modal.getInstance(document.getElementById('batchRenameModal')).hide();
+    
+    showLogMessage(translations['renaming_files'] || 'Renaming files...', 'info');
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < batchRenameFiles.length; i++) {
+        const file = batchRenameFiles[i];
+        const num = startNum + i;
+        const paddedNum = num.toString().padStart(padding, '0');
+        
+        let newName = pattern
+            .replace(/{n}/g, paddedNum)
+            .replace(/{name}/g, keepOriginalName ? file.nameWithoutExt : '')
+            .replace(/{ext}/g, file.ext);
+        
+        if (!keepOriginalName) {
+            newName = newName.replace(/{name}/g, '');
+        }
+        
+        if (removeSpecialChars) {
+            newName = removeSpecialCharsFromName(newName);
+        }
+        
+        if (file.ext && !newName.endsWith('.' + file.ext)) {
+            newName = newName + (newName ? '.' : '') + file.ext;
+        }
+        
+        newName = newName.replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+        
+        if (!newName) {
+            newName = 'file_' + paddedNum + (file.ext ? '.' + file.ext : '');
+        }
+        
+        if (newName === file.name) {
+            successCount++;
+            continue;
+        }
+        
+        try {
+            const response = await fetch(`?action=rename_item&old=${encodeURIComponent(file.path)}&new=${encodeURIComponent(newName)}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                successCount++;
+            } else {
+                errorCount++;
+            }
+        } catch (error) {
+            errorCount++;
+        }
+    }
+    
+    selectedFiles.clear();
+    updateSelectionInfo();
+    
+    refreshFiles();
+    
+    let message = '';
+    if (successCount > 0) {
+        message = (translations['rename_success_count'] || 'Successfully renamed {count} file(s)').replace('{count}', successCount);
+        showLogMessage(message, 'success');
+        speakMessage(message, 'success');
+    }
+    
+    if (errorCount > 0) {
+        message = (translations['rename_failed_count'] || 'Failed to rename {count} file(s)').replace('{count}', errorCount);
+        showLogMessage(message, 'error');
+    }
+}
 
 window.addEventListener('beforeunload', function(e) {
     const unsavedTabs = editorTabs.filter(tab => tab.modified);
