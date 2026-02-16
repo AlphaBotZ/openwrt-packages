@@ -731,6 +731,127 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    if ($action === 'upload_folder') {
+        header('Content-Type: application/json');
+    
+        $path = isset($_POST['path']) ? urldecode($_POST['path']) : '';
+        $realPath = realpath($path);
+    
+        if (!$realPath || strpos($realPath, $ROOT_DIR) !== 0 || !is_dir($realPath)) {
+            echo json_encode(['success' => false, 'error' => 'Invalid path']);
+            exit;
+        }
+    
+        $uploaded = 0;
+        $errors = [];
+    
+        if (isset($_FILES['files']) && isset($_POST['paths'])) {
+            $files = $_FILES['files'];
+            $paths = $_POST['paths'];
+        
+            for ($i = 0; $i < count($paths); $i++) {
+                if ($files['error'][$i] === UPLOAD_ERR_OK) {
+                    $relativePath = $paths[$i];
+                    $targetPath = $realPath . '/' . $relativePath;
+                
+                    if (move_uploaded_file($files['tmp_name'][$i], $targetPath)) {
+                        $uploaded++;
+                    } else {
+                        $errors[] = "Failed to upload: $relativePath";
+                    }
+                }
+            }
+        }
+    
+        echo json_encode([
+            'success' => $uploaded > 0,
+            'files_uploaded' => $uploaded,
+            'errors' => $errors
+        ]);
+        exit;
+    }
+
+    if ($action === 'convert_media') {
+        header('Content-Type: application/json');
+    
+        $input = json_decode(file_get_contents('php://input'), true);
+        $inputFile = $input['input'];
+        $outputFile = $input['output'];
+        $format = $input['format'];
+        $quality = $input['quality'];
+    
+        if (strpos(realpath($inputFile), $ROOT_DIR) !== 0 || 
+            strpos(realpath(dirname($outputFile)), $ROOT_DIR) !== 0) {
+            echo json_encode(['success' => false, 'error' => 'Invalid path']);
+            exit;
+        }
+    
+        $ffmpegPath = '/usr/bin/ffmpeg';
+    
+        $quality_param = '';
+        switch($quality) {
+            case 'high':
+                $quality_param = $format === 'mp3' ? '-b:a 320k' : '-crf 18';
+                break;
+            case 'medium':
+                $quality_param = $format === 'mp3' ? '-b:a 192k' : '-crf 23';
+                break;
+            case 'low':
+                $quality_param = $format === 'mp3' ? '-b:a 128k' : '-crf 28';
+                break;
+        }
+    
+        $cmd = $ffmpegPath . " -i " . escapeshellarg($inputFile) . " -y";
+    
+        switch($format) {
+            case 'mp3':
+                $cmd .= " -acodec libmp3lame $quality_param";
+                break;
+            case 'wav':
+                $cmd .= " -acodec pcm_s16le";
+                break;
+            case 'ogg':
+                $cmd .= " -acodec libvorbis -q:a " . ($quality === 'high' ? '8' : ($quality === 'medium' ? '5' : '3'));
+                break;
+            case 'flac':
+                $cmd .= " -acodec flac";
+                break;
+            case 'aac':
+            case 'm4a':
+                $cmd .= " -acodec aac $quality_param";
+                break;
+            case 'mp4':
+                $cmd .= " -c:v libx264 -preset medium $quality_param -c:a aac -b:a 128k";
+                break;
+            case 'avi':
+                $cmd .= " -c:v mpeg4 -q:v " . ($quality === 'high' ? '2' : ($quality === 'medium' ? '5' : '8')) . " -c:a mp3 -b:a 128k";
+                break;
+            case 'mkv':
+                $cmd .= " -c:v libx264 -preset medium $quality_param -c:a aac -b:a 128k";
+                break;
+            case 'mov':
+                $cmd .= " -c:v libx264 -preset medium $quality_param -c:a aac -b:a 128k";
+                break;
+            case 'webm':
+                $cmd .= " -c:v libvpx-vp9 -crf " . ($quality === 'high' ? '18' : ($quality === 'medium' ? '23' : '28')) . " -b:v 0 -c:a libopus -b:a 128k";
+                break;
+            case 'gif':
+                $cmd .= " -vf fps=10,scale=480:-1:flags=lanczos -c:v gif";
+                break;
+        }
+    
+        $cmd .= " " . escapeshellarg($outputFile) . " 2>&1";
+    
+        exec($cmd, $output, $returnCode);
+    
+        if ($returnCode === 0 && file_exists($outputFile)) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'error' => implode("\n", $output)]);
+        }
+        exit;
+    }
+
     if ($action === 'rename_item') {
         header('Content-Type: application/json');
         
@@ -1039,6 +1160,54 @@ if (isset($_GET['action'])) {
                 'error' => 'Hash calculation failed: ' . $e->getMessage()
             ]);
         }
+        exit;
+    }
+
+    if ($action === 'full_scan') {
+        header('Content-Type: application/json');
+    
+        $media = ['music' => [], 'video' => [], 'image' => []];
+        $files = scanDirectory($ROOT_DIR, 20);
+    
+        foreach ($files as $file) {
+            $ext = $file['ext'];
+            foreach ($TYPE_EXT as $type => $exts) {
+                if (in_array($ext, $exts)) {
+                    $media[$type][] = $file;
+                    break;
+                }
+            }
+        }
+    
+        foreach ($media as &$files) {
+            usort($files, function($a, $b) {
+                return $b['mtime'] - $a['mtime'];
+            });
+        }
+    
+        $cacheFile = './lib/media_cache.json';
+        file_put_contents($cacheFile, json_encode($media));
+    
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    if ($action === 'clear_cache') {
+        header('Content-Type: application/json');
+    
+        $cacheFile = './lib/media_cache.json';
+        $success = false;
+    
+        if (file_exists($cacheFile)) {
+            $success = unlink($cacheFile);
+        } else {
+            $success = true;
+        }
+    
+        echo json_encode([
+            'success' => $success,
+            'message' => $success ? 'Cache cleared' : 'Failed to clear cache'
+        ]);
         exit;
     }
 
@@ -2061,7 +2230,7 @@ function getDiskInfo($path = '/') {
     ];
 }
 
-function scanDirectory($path, $maxDepth = 5) {
+function scanDirectory($path, $maxDepth = 5, $fast = false) {
     global $EXCLUDE_DIRS;
     $files = [];
     $seenFiles = [];
@@ -2085,12 +2254,9 @@ function scanDirectory($path, $maxDepth = 5) {
             RecursiveIteratorIterator::CATCH_GET_CHILD
         );
         
+        $iterator->setMaxDepth($maxDepth);
+        
         foreach ($iterator as $file) {
-            if ($iterator->getDepth() > $maxDepth) {
-                $iterator->next();
-                continue;
-            }
-            
             if ($file->isFile() && $file->isReadable()) {
                 $filePath = $file->getPathname();
                 $realPath = realpath($filePath);
@@ -2117,18 +2283,36 @@ function scanDirectory($path, $maxDepth = 5) {
                 
                 $seenFiles[$fileKey] = true;
                 
-                $files[] = [
-                    'path' => $realPath,
-                    'name' => $file->getFilename(),
-                    'size' => $file->getSize(),
-                    'mtime' => $file->getMTime(),
-                    'ext' => strtolower($file->getExtension()),
-                    'safe_path' => htmlspecialchars($realPath, ENT_QUOTES, 'UTF-8'),
-                    'safe_name' => htmlspecialchars($file->getFilename(), ENT_QUOTES, 'UTF-8')
-                ];
+                if ($fast) {
+                    $ext = strtolower($file->getExtension());
+                    $files[] = [
+                        'path' => $realPath,
+                        'name' => $fileName,
+                        'size' => $fileSize,
+                        'mtime' => $file->getMTime(),
+                        'ext' => $ext,
+                        'safe_path' => htmlspecialchars($realPath, ENT_QUOTES, 'UTF-8'),
+                        'safe_name' => htmlspecialchars($fileName, ENT_QUOTES, 'UTF-8')
+                    ];
+                } else {
+                    $files[] = [
+                        'path' => $realPath,
+                        'name' => $fileName,
+                        'size' => $fileSize,
+                        'mtime' => $file->getMTime(),
+                        'ext' => strtolower($file->getExtension()),
+                        'safe_path' => htmlspecialchars($realPath, ENT_QUOTES, 'UTF-8'),
+                        'safe_name' => htmlspecialchars($fileName, ENT_QUOTES, 'UTF-8')
+                    ];
+                }
+            }
+            
+            if (count($files) % 100 == 0) {
+                gc_collect_cycles();
             }
         }
     } catch (Exception $e) {
+        error_log("Scan error: " . $e->getMessage());
     }
     
     return $files;
@@ -2146,22 +2330,13 @@ function getVideoThumbnail($videoPath) {
 }
 
 $media = ['music' => [], 'video' => [], 'image' => []];
-$files = scanDirectory($ROOT_DIR);
 
-foreach ($files as $file) {
-    $ext = $file['ext'];
-    foreach ($TYPE_EXT as $type => $exts) {
-        if (in_array($ext, $exts)) {
-            $media[$type][] = $file;
-            break;
-        }
+$cacheFile = './lib/media_cache.json';
+if (file_exists($cacheFile)) {
+    $cached = json_decode(file_get_contents($cacheFile), true);
+    if ($cached) {
+        $media = $cached;
     }
-}
-
-foreach ($media as &$files) {
-    usort($files, function($a, $b) {
-        return $b['mtime'] - $a['mtime'];
-    });
 }
 
 $diskInfo = getDiskInfo('/');
@@ -4028,6 +4203,82 @@ list-group:hover {
 .table>:not(caption)>*>* {
     color: var(--text-primary) !important;
 }
+
+.file-item.playing {
+    background-color: rgba(76, 175, 80, 0.2) !important;
+    border-color: #4CAF50 !important;
+    box-shadow: 0 0 15px rgba(76, 175, 80, 0.5) !important;
+    transform: translateY(-2px);
+    position: relative;
+    z-index: 10;
+}
+
+.file-item.playing::after {
+    content: '▶';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    color: #4CAF50;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pulse 1.5s infinite;
+}
+
+.media-item.playing {
+    background-color: rgba(76, 175, 80, 0.2) !important;
+    border-color: #4CAF50 !important;
+    box-shadow: 0 0 15px rgba(76, 175, 80, 0.5) !important;
+    transform: translateY(-2px);
+    position: relative;
+    z-index: 10;
+}
+
+.media-item.playing::after {
+    content: '▶';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    color: #4CAF50;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pulse 1.5s infinite;
+}
+
+.file-item.playing .file-icon i,
+.media-item.playing .media-thumb i {
+    color: #4CAF50 !important;
+    filter: drop-shadow(0 0 5px #4CAF50);
+}
+
+.file-item.playing .file-name,
+.media-item.playing .media-name {
+    color: #4CAF50 !important;
+    font-weight: bold;
+}
+
+.file-item.playing .file-size,
+.media-item.playing .media-meta {
+    color: #4CAF50 !important;
+    opacity: 0.9;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.7; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 0.7; transform: scale(1); }
+}
 </style>
 <div class="main-container">
     <div class="content-area" id="contentArea">
@@ -4063,6 +4314,14 @@ list-group:hover {
             </div>
             
             <div class="actions">
+                <button id="scanButton" class="btn btn-info" onclick="performFullScan()" data-translate-tooltip="full_scan_tooltip">
+                    <i class="fas fa-search"></i>
+                    <span data-translate="full_scan">Full Scan</span>
+                </button>
+                <button id="clearCacheButton" class="btn btn-warning" onclick="clearMediaCache()">
+                    <i class="fas fa-trash"></i>
+                    <span data-translate="clear_cache">Clear Cache</span>
+                </button>
                 <button id="autoNextToggle" class="btn btn-primary" onclick="toggleAutoNext()">
                     <i class="fas fa-toggle-off"></i>
                     <span data-translate="auto_play">Auto Play</span>
@@ -4523,9 +4782,6 @@ list-group:hover {
                                      <i class="fas fa-video"></i>
                                  </div>
                              </video>
-                             <div class="video-overlay" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px;">
-                                 <i class="fas fa-play text-white" style="font-size: 12px;"></i>
-                             </div>
                          </div>
                             <div class="media-info">
                                 <div class="media-name" title="<?= htmlspecialchars($item['safe_name'], ENT_QUOTES, 'UTF-8') ?>">
@@ -4873,6 +5129,11 @@ list-group:hover {
             <i class="fas fa-i-cursor me-2" style="color:#9C27B0;"></i>
             <span data-translate="batch_rename">Batch Rename</span>
             <span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">Ctrl+B</span>
+        </div>
+        <div class="menu-item" id="fileConvertItem" style="display: none;" onclick="showConvertDialog()">
+            <i class="fas fa-exchange-alt me-2" style="color: #9C27B0;"></i>
+            <span data-translate="batch_convert">Batch Format Conversion</span>
+            <span style="margin-left: auto; font-size: 0.8rem; opacity: 0.7;">FFmpeg</span>
         </div>
         <div class="menu-item" id="fileDeleteItem" onclick="contextMenuDelete()">
             <i class="fas fa-trash me-2" style="color:#E53935;"></i>
@@ -5635,6 +5896,90 @@ list-group:hover {
     </div>
 </div>
 
+<div class="modal fade" id="convertModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exchange-alt me-2 text-purple"></i>
+                    <span data-translate="batch_convert">'Batch Format Conversion</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="card bg-dark bg-opacity-25 border-secondary mb-3">
+                    <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-list me-2"></i>
+                            <span data-translate="files_to_convert">Files to Convert</span>
+                        </div>
+                        <span class="badge bg-primary" id="convertFilesCount">0</span>
+                    </div>
+                    <div class="card-body p-2">
+                        <div id="convertFileList" class="list-group list-group-flush" style="max-height:200px; overflow-y:auto;"></div>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="convertFormat" class="form-label" data-translate="output_format">Output Format</label>
+                        <select class="form-select" id="convertFormat">
+                            <optgroup data-translate="audio_formats">
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="ogg">OGG</option>
+                                <option value="flac">FLAC</option>
+                                <option value="aac">AAC</option>
+                                <option value="m4a">M4A</option>
+                            </optgroup>
+                            <optgroup data-translate="video_formats">
+                                <option value="mp4">MP4</option>
+                                <option value="avi">AVI</option>
+                                <option value="mkv">MKV</option>
+                                <option value="mov">MOV</option>
+                                <option value="webm">WEBM</option>
+                                <option value="gif">GIF</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label for="convertQuality" class="form-label" data-translate="quality">Quality / Bitrate</label>
+                        <select class="form-select" id="convertQuality">
+                            <option value="high" data-translate="high_quality">High Quality</option>
+                            <option value="medium" selected data-translate="medium_quality">Medium Quality</option>
+                            <option value="low" data-translate="low_quality">Low Quality</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="convertProgressArea" style="display: none;">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span data-translate="converting">Converting...</span>
+                        <span id="convertProgressText">0/0</span>
+                    </div>
+                    <div class="progress mb-3" style="height: 25px;">
+                        <div id="convertProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                             role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                    <div id="convertLog" class="bg-dark text-success p-2 rounded" 
+                         style="height: 150px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>
+                    <span data-translate="cancel">Cancel</span>
+                </button>
+                <button type="button" class="btn btn-primary" onclick="startConvert()">
+                    <i class="fas fa-play me-1"></i>
+                    <span data-translate="start_convert">Start Conversion</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let selectedMediaElement = null;
 let selectedMediaPath = '';
@@ -5686,6 +6031,10 @@ function showSection(sectionId) {
     } else {
         stopSystemMonitoring();
     }
+
+    setTimeout(() => {
+        restorePlayingHighlight();
+    }, 300);
 }
      
 let playMediaTimeout = null;
@@ -5699,6 +6048,7 @@ function actuallyPlayMedia(filePath) {
     
     const fileName = filePath.split('/').pop();
     const fileExt = fileName.split('.').pop().toLowerCase();
+    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
     
     const previewUrl = `?preview=1&path=${encodeURIComponent(filePath)}`;
     const audioPlayer = document.getElementById('audioPlayer');
@@ -5708,10 +6058,21 @@ function actuallyPlayMedia(filePath) {
     const playerArea = document.getElementById('playerArea');
     const playerTitle = document.getElementById('playerTitle');
 
+    const playingPrefix = translations['now_playing'] || 'Now playing';
+    const playingMessage = `${playingPrefix}：${nameWithoutExt}`;
+    showLogMessage(playingMessage);
+    speakMessage(playingMessage);
+
     if (imageSwitchTimer) {
         clearInterval(imageSwitchTimer);
         imageSwitchTimer = null;
     }
+    if (fileImageSwitchTimer) {
+        clearInterval(fileImageSwitchTimer);
+        fileImageSwitchTimer = null;
+    }
+    
+    clearAllHighlights();
     
     audioPlayer.style.display = 'none';
     videoPlayer.style.display = 'none';
@@ -5743,14 +6104,25 @@ function actuallyPlayMedia(filePath) {
             playError.style.display = 'block';
             playerArea.classList.add('active');
             currentMedia = { type: null, src: null, path: null, ext: null, wasPlaying: false };
+            clearAllHighlights();
         };
     }
+    
+    const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+    const isFileManager = currentSection === 'filesSection';
+    
+    highlightCurrentPlayingFile(filePath, isFileManager);
     
     if (musicExts.includes(fileExt)) {
         audioPlayer.onerror = handleMediaError(audioPlayer, translations['audio'] || 'Audio');
         audioPlayer.onended = function() {
+            clearAllHighlights();
             if (autoNextEnabled) {
-                playNextMedia();
+                if (isFileManager) {
+                    playNextFileMedia();
+                } else {
+                    playNextMedia();
+                }
             }
         };
         audioPlayer.src = previewUrl;
@@ -5760,15 +6132,26 @@ function actuallyPlayMedia(filePath) {
         audioPlayer.play().catch(e => {
             audioPlayer.style.display = 'none';
             playError.style.display = 'block';
+            clearAllHighlights();
         });
         currentMedia = { type: 'audio', src: previewUrl, path: filePath, ext: fileExt, wasPlaying: false };
-        updateCurrentMediaList('music', filePath);
+        
+        if (isFileManager) {
+            updateFileMediaList(filePath);
+        } else {
+            updateCurrentMediaList('music', filePath);
+        }
     } 
     else if (videoExts.includes(fileExt)) {
         videoPlayer.onerror = handleMediaError(videoPlayer, translations['video'] || 'Video');
         videoPlayer.onended = function() {
+            clearAllHighlights();
             if (autoNextEnabled) {
-                playNextMedia();
+                if (isFileManager) {
+                    playNextFileMedia();
+                } else {
+                    playNextMedia();
+                }
             }
         };
         videoPlayer.src = previewUrl;
@@ -5778,28 +6161,121 @@ function actuallyPlayMedia(filePath) {
         videoPlayer.play().catch(e => {
             videoPlayer.style.display = 'none';
             playError.style.display = 'block';
+            clearAllHighlights();
         });
         currentMedia = { type: 'video', src: previewUrl, path: filePath, ext: fileExt, wasPlaying: false };
-        updateCurrentMediaList('video', filePath);
+        
+        if (isFileManager) {
+            updateFileMediaList(filePath);
+        } else {
+            updateCurrentMediaList('video', filePath);
+        }
     } 
     else if (imageExts.includes(fileExt)) {
         imageViewer.onerror = handleMediaError(imageViewer, translations['image'] || 'Image');
         imageViewer.src = previewUrl;
         imageViewer.style.display = 'block';
         currentMedia = { type: 'image', src: previewUrl, path: filePath, ext: fileExt, wasPlaying: false };
-        updateCurrentMediaList('image', filePath);
+        
+        if (isFileManager) {
+            updateFileMediaList(filePath);
+        } else {
+            updateCurrentMediaList('image', filePath);
+        }
         
         if (autoNextEnabled) {
-            startImageAutoSwitch();
+            if (isFileManager) {
+                startFileImageAutoSwitch();
+            } else {
+                startImageAutoSwitch();
+            }
         }
     } else {
         playError.style.display = 'block';
         playerArea.classList.add('active');
+        clearAllHighlights();
     }
     
     playerArea.classList.add('active');
     setPlayerTitle(fileName);    
     saveToRecent(filePath);
+}
+
+function clearAllHighlights() {
+    document.querySelectorAll('.file-item').forEach(item => {
+        item.classList.remove('playing');
+        item.style.backgroundColor = '';
+        item.style.borderColor = '';
+        item.style.boxShadow = '';
+        item.style.transform = '';
+    });
+    
+    document.querySelectorAll('.media-item').forEach(item => {
+        item.classList.remove('playing');
+        item.style.backgroundColor = '';
+        item.style.borderColor = '';
+        item.style.boxShadow = '';
+        item.style.transform = '';
+    });
+}
+
+function highlightCurrentPlayingFile(filePath, isFileManager) {
+    clearAllHighlights();
+    
+    if (isFileManager) {
+        const fileItem = document.querySelector(`.file-item[data-path="${filePath}"]`);
+        if (fileItem) {
+            fileItem.classList.add('playing');
+            fileItem.style.backgroundColor = 'rgba(76, 175, 80, 0.2)';
+            fileItem.style.borderColor = '#4CAF50';
+            fileItem.style.boxShadow = '0 0 15px rgba(76, 175, 80, 0.5)';
+            fileItem.style.transform = 'translateY(-2px)';
+            fileItem.style.transition = 'all 0.3s ease';
+            fileItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    } else {
+        const mediaItem = document.querySelector(`.media-item[data-src="?preview=1&path=${encodeURIComponent(filePath)}"]`);
+        if (mediaItem) {
+            mediaItem.classList.add('playing');
+            mediaItem.style.backgroundColor = 'rgba(76, 175, 80, 0.2)';
+            mediaItem.style.borderColor = '#4CAF50';
+            mediaItem.style.boxShadow = '0 0 15px rgba(76, 175, 80, 0.5)';
+            mediaItem.style.transform = 'translateY(-2px)';
+            mediaItem.style.transition = 'all 0.3s ease';
+            mediaItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+}
+
+function restorePlayingHighlight() {
+    if (currentMedia && currentMedia.path) {
+        const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+        const isFileManager = currentSection === 'filesSection';
+        
+        if (isFileManager) {
+            const fileExists = currentFileMediaList.includes(currentMedia.path);
+            if (fileExists) {
+                highlightCurrentPlayingFile(currentMedia.path, true);
+            } else {
+                clearAllHighlights();
+            }
+        } else {
+            let mediaExists = false;
+            if (currentSection === 'musicSection' && currentMedia.type === 'audio') {
+                mediaExists = currentMediaList.includes(currentMedia.path);
+            } else if (currentSection === 'videoSection' && currentMedia.type === 'video') {
+                mediaExists = currentMediaList.includes(currentMedia.path);
+            } else if (currentSection === 'imageSection' && currentMedia.type === 'image') {
+                mediaExists = currentMediaList.includes(currentMedia.path);
+            }
+            
+            if (mediaExists) {
+                highlightCurrentPlayingFile(currentMedia.path, false);
+            } else {
+                clearAllHighlights();
+            }
+        }
+    }
 }
 
 function playMedia(filePath) {
@@ -5816,6 +6292,115 @@ function playMedia(filePath) {
     
     lastPlayedPath = filePath;
     actuallyPlayMedia(filePath);
+}
+
+function updateCurrentFileMediaList() {
+    const fileItems = document.querySelectorAll('.file-item');
+    currentFileMediaList = [];
+    
+    const mediaExts = [
+        'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
+        'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
+    ];
+    
+    fileItems.forEach(item => {
+        const path = item.getAttribute('data-path');
+        const isDir = item.getAttribute('data-is-dir') === 'true';
+        
+        if (!isDir && path) {
+            const ext = path.split('.').pop().toLowerCase();
+            if (mediaExts.includes(ext)) {
+                currentFileMediaList.push(path);
+            }
+        }
+    });
+}
+
+function updateFileMediaList(filePath) {
+    updateCurrentFileMediaList();
+    currentFileMediaIndex = currentFileMediaList.indexOf(filePath);
+    console.log('File media index:', currentFileMediaIndex, 'Total:', currentFileMediaList.length);
+}
+
+function startFileImageAutoSwitch() {
+    if (fileImageSwitchTimer) {
+        clearInterval(fileImageSwitchTimer);
+    }
+    
+    if (!autoNextEnabled || currentFileMediaList.length < 2) {
+        return;
+    }
+    
+    fileImageSwitchTimer = setInterval(() => {
+        playNextFileMedia();
+    }, 5000);
+}
+
+function playNextFileMedia() {
+    if (!autoNextEnabled) {
+        return;
+    }
+
+    const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+    const isFileManager = currentSection === 'filesSection';
+    
+    if (isFileManager) {
+        if (currentFileMediaList.length === 0 || currentFileMediaIndex === -1) {
+            return;
+        }
+        
+        const nextIndex = (currentFileMediaIndex + 1) % currentFileMediaList.length;
+        const nextFilePath = currentFileMediaList[nextIndex];
+        
+        if (nextFilePath) {
+            playMedia(nextFilePath);
+        }
+    } else {
+        if (currentMediaList.length === 0 || currentMediaIndex === -1) {
+            return;
+        }
+        
+        const nextIndex = (currentMediaIndex + 1) % currentMediaList.length;
+        const nextFilePath = currentMediaList[nextIndex];
+        
+        if (nextFilePath) {
+            playMedia(nextFilePath);
+        }
+    }
+}
+
+function playPreviousFileMedia() {
+    if (!autoNextEnabled) {
+        return;
+    }
+
+    const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+    const isFileManager = currentSection === 'filesSection';
+    
+    if (isFileManager) {
+        if (currentFileMediaList.length === 0 || currentFileMediaIndex === -1) {
+            return;
+        }
+        
+        const prevIndex = (currentFileMediaIndex - 1 + currentFileMediaList.length) % currentFileMediaList.length;
+        const prevFilePath = currentFileMediaList[prevIndex];
+        
+        if (prevFilePath) {
+            playMedia(prevFilePath);
+        }
+    } else {
+        if (currentMediaList.length === 0 || currentMediaIndex === -1) {
+            return;
+        }
+        
+        const prevIndex = (currentMediaIndex - 1 + currentMediaList.length) % currentMediaList.length;
+        const prevFilePath = currentMediaList[prevIndex];
+        
+        if (prevFilePath) {
+            playMedia(prevFilePath);
+        }
+    }
 }
 
 function setPlayerTitle(fileName) {
@@ -5935,13 +6520,28 @@ function toggleAutoNext() {
         (translations['auto_play_enabled'] || 'Auto play enabled') : 
         (translations['auto_play_disabled'] || 'Auto play disabled'));
     
+    const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+    const isFileManager = currentSection === 'filesSection';
+    
     if (currentMedia.type === 'image') {
-        if (autoNextEnabled && currentMediaList.length > 1) {
-            startImageAutoSwitch();
+        if (autoNextEnabled) {
+            if (isFileManager) {
+                if (currentFileMediaList.length > 1) {
+                    startFileImageAutoSwitch();
+                }
+            } else {
+                if (currentMediaList.length > 1) {
+                    startImageAutoSwitch();
+                }
+            }
         } else {
             if (imageSwitchTimer) {
                 clearInterval(imageSwitchTimer);
                 imageSwitchTimer = null;
+            }
+            if (fileImageSwitchTimer) {
+                clearInterval(fileImageSwitchTimer);
+                fileImageSwitchTimer = null;
             }
         }
     }
@@ -6028,6 +6628,12 @@ function closePlayer() {
         clearInterval(imageSwitchTimer);
         imageSwitchTimer = null;
     }
+    if (fileImageSwitchTimer) {
+        clearInterval(fileImageSwitchTimer);
+        fileImageSwitchTimer = null;
+    }
+    
+    clearAllHighlights();
     
     audioPlayer.pause();
     videoPlayer.pause();
@@ -6086,6 +6692,72 @@ function toggleFullscreenPlayer() {
 function refreshMedia() {
     updateRecentList();
     window.location.reload();
+}
+
+function performFullScan() {
+    const scanBtn = document.getElementById('scanButton');
+    const originalText = scanBtn.innerHTML;
+    
+    showConfirmation(
+        translations['confirm_full_scan'] || 'This will scan the entire file system. This may take a while. Continue?',
+        async () => {
+            scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (translations['scanning'] || 'Scanning...');
+            scanBtn.disabled = true;
+            
+            try {
+                const response = await fetch('?action=full_scan');
+                const data = await response.json();
+                
+                if (data.success) {
+                    showLogMessage(translations['scan_complete'] || 'Scan complete', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 4000);
+                } else {
+                    showLogMessage(translations['scan_failed'] || 'Scan failed', 'error');
+                    scanBtn.innerHTML = originalText;
+                    scanBtn.disabled = false;
+                }
+            } catch (error) {
+                showLogMessage(translations['scan_error'] || 'Scan error: ' + error.message, 'error');
+                scanBtn.innerHTML = originalText;
+                scanBtn.disabled = false;
+            }
+        }
+    );
+}
+
+function clearMediaCache() {
+    showConfirmation(
+        translations['confirm_clear_cache'] || 'This will clear the media cache. Continue?',
+        async () => {
+            const btn = document.getElementById('clearCacheButton');
+            const originalText = btn.innerHTML;
+            
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (translations['clearing'] || 'Clearing...');
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('?action=clear_cache');
+                const data = await response.json();
+                
+                if (data.success) {
+                    showLogMessage(translations['cache_cleared'] || 'Cache cleared', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    showLogMessage(translations['clear_failed'] || 'Failed to clear cache', 'error');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                showLogMessage(translations['clear_error'] || 'Error: ' + error.message, 'error');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+    );
 }
     
 function toggleFullscreen() {
@@ -7094,12 +7766,22 @@ document.addEventListener('keydown', function(event) {
             
         case 'ArrowRight':
             event.preventDefault();
-            playNextMedia();
+            const currentSection = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+            if (currentSection === 'filesSection') {
+                playNextFileMedia();
+            } else {
+                playNextMedia();
+            }
             break;
             
         case 'ArrowLeft':
             event.preventDefault();
-            playPreviousMedia();
+            const currentSectionLeft = document.querySelector('.grid-section:not([style*="display: none"])')?.id || '';
+            if (currentSectionLeft === 'filesSection') {
+                playPreviousFileMedia();
+            } else {
+                playPreviousMedia();
+            }
             break;
             
         case 'KeyA':
@@ -7207,6 +7889,9 @@ let currentPath = '/';
 let selectedFiles = new Set();
 let viewMode = 'grid';
 let fileContextMenuTarget = null;
+let currentFileMediaList = [];
+let currentFileMediaIndex = -1;
+let fileImageSwitchTimer = null;  
 let uploadFilesList = [];
 let currentView = 'files'; 
 let monacoEditor = null;
@@ -7333,7 +8018,9 @@ async function loadFiles(path) {
                 }
             }
         }, 500);
+        updateCurrentFileMediaList();
     }
+    restorePlayingHighlight();
 
     initDragSelect();
 
@@ -7511,7 +8198,6 @@ function handleRightClick(event) {
             }
         }
 
-
         const hashItem = document.getElementById('fileHashItem');
         if (hashItem) {
             if (!isDir && selectedFiles.size === 1) {
@@ -7526,6 +8212,7 @@ function handleRightClick(event) {
                            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
         if (!isDir && mediaExts.includes(ext)) {
             showMenuItem('filePlayItem');
+            showMenuItem('fileConvertItem');
         }
         
         const textExts = ['txt', 'log', 'conf', 'ini', 'json', 'xml', 'html', 
@@ -8187,7 +8874,7 @@ function hideAllContextMenuItems() {
         'emptyNewFolderItem', 'emptyNewFileItem', 'emptyUploadItem',
         'emptyRefreshItem', 'emptySelectAllItem', 'fileCopyPathItem',
         'globalPasteItem', 'fileBatchRenameItem',
-        'archiveMenuItem',
+        'archiveMenuItem', 'fileConvertItem',
         'fileInstallItem', 'fileHashItem'
     ];
     
@@ -8687,6 +9374,29 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    const uploadModal = document.getElementById('uploadModal');
+    if (uploadModal) {
+        uploadModal.addEventListener('show.bs.modal', function() {
+            uploadFilesList = [];
+            
+            const fileList = document.getElementById('fileList');
+            if (fileList) {
+                fileList.innerHTML = '';
+            }
+            
+            const fileListCard = document.getElementById('fileListCard');
+            if (fileListCard) {
+                fileListCard.style.display = 'none';
+            }
+            
+            const fileInput = document.getElementById('fileUploadInput');
+            if (fileInput) {
+                fileInput.value = '';
+            }
+        });
+    }
+    
     setTimeout(() => {
         initDragSelect();
     }, 500);
@@ -11936,12 +12646,46 @@ function downloadFile(path) {
 }
 
 function handleFileSelect(event) {
-    const files = event.target.files;
-    const fileList = document.getElementById('fileList');
+    const files = Array.from(event.target.files);
     
-    uploadFilesList = Array.from(files);
+    uploadFilesList = [];
+    const folderSet = new Set();
+    
+    files.forEach(file => {
+        if (file.webkitRelativePath) {
+            const folderName = file.webkitRelativePath.split('/')[0];
+            folderSet.add(folderName);
+        }
+    });
+    
+    files.forEach(file => {
+        if (file.webkitRelativePath) {
+            const folderName = file.webkitRelativePath.split('/')[0];
+            file._isFolderFile = true;
+            file._folderName = folderName;
+            file._fullPath = file.webkitRelativePath;
+            uploadFilesList.push(file);
+        } else {
+            uploadFilesList.push(file);
+        }
+    });
+    
+    folderSet.forEach(folderName => {
+        const hasFolderFiles = uploadFilesList.some(f => f._folderName === folderName);
+        if (hasFolderFiles) {
+            const folderObj = {
+                _isFolder: true,
+                _folderName: folderName,
+                _files: uploadFilesList.filter(f => f._folderName === folderName),
+                size: uploadFilesList
+                    .filter(f => f._folderName === folderName)
+                    .reduce((sum, f) => sum + f.size, 0)
+            };
+            uploadFilesList.unshift(folderObj);
+        }
+    });
+    
     updateUploadFileList();
-    
     event.target.value = '';
 }
 
@@ -11976,35 +12720,150 @@ function removeUploadFile(index) {
 
 function updateUploadFileList() {
     const fileList = document.getElementById('fileList');
+    const fileListCard = document.getElementById('fileListCard');
+    
     fileList.innerHTML = '';
     
     if (uploadFilesList.length === 0) {
-        fileList.innerHTML = `
-            <div class="text-center text-muted py-3">
-                <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
-                <p data-translate="no_files_selected">No files selected</p>
-            </div>`;
+        if (fileListCard) {
+            fileListCard.style.display = 'none';
+        }
         return;
     }
     
-    uploadFilesList.forEach((file, index) => {
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item-upload d-flex align-items-center justify-content-between p-2 mb-2  rounded';
-        fileItem.innerHTML = `
-            <div class="d-flex align-items-center">
-                <i class="fas fa-file me-3 text-secondary"></i>
-                <div>
-                    <div class="file-name text-truncate" style="max-width: 300px;">${escapeHtml(file.name)}</div>
-                    <small class="text-muted">${formatFileSize(file.size)}</small>
+    if (fileListCard) {
+        fileListCard.style.display = 'block';
+    }
+    
+    let totalSize = 0;
+    let fileCount = 0;
+    let folderCount = 0;
+    
+    uploadFilesList.forEach(item => {
+        if (item._isFolder) {
+            folderCount++;
+            totalSize += item.size;
+            fileCount += item._files.length;
+        } else if (!item._isFolderFile) {
+            fileCount++;
+            totalSize += item.size;
+        }
+    });
+    
+    const totalItems = uploadFilesList.length;
+    
+    const statsCard = document.createElement('div');
+    statsCard.className = 'card bg-primary bg-opacity-10 border-primary mb-3';
+    statsCard.innerHTML = `
+        <div class="card-body">
+            <div class="row g-3 text-center">
+                <div class="col-3">
+                    <div class="stat-value text-primary fs-4 fw-bold">${totalItems}</div>
+                    <div class="stat-label small text-muted" data-translate="items">Items</div>
+                </div>
+                <div class="col-3">
+                    <div class="stat-value text-success fs-4 fw-bold">${fileCount}</div>
+                    <div class="stat-label small text-muted" data-translate="total_files">Total Files</div>
+                </div>
+                <div class="col-3">
+                    <div class="stat-value text-info fs-4 fw-bold">${folderCount}</div>
+                    <div class="stat-label small text-muted" data-translate="folders">Folders</div>
+                </div>
+                <div class="col-3">
+                    <div class="stat-value text-warning fs-4 fw-bold">${formatFileSize(totalSize)}</div>
+                    <div class="stat-label small text-muted" data-translate="total_size">Total Size</div>
                 </div>
             </div>
-            <button class="btn btn-sm btn-danger" onclick="removeUploadFile(${index})">
-                <i class="fas fa-times"></i>
-            </button>
-        `;
-        
-        fileList.appendChild(fileItem);
+        </div>
+    `;
+    fileList.appendChild(statsCard);
+    
+    const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'upload-scroll-container';
+    scrollContainer.style.cssText = `
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 5px;
+    `;
+    
+    uploadFilesList.forEach((item, index) => {
+        if (item._isFolder) {
+            const folderCard = document.createElement('div');
+            folderCard.className = 'card bg-warning bg-opacity-10 border-warning mb-2';
+            folderCard.innerHTML = `
+                <div class="card-body p-2">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0 me-3">
+                            <i class="fas fa-folder fa-2x" style="color: #FFA726;"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-bold">${escapeHtml(item._folderName)}</span>
+                                    <span class="badge bg-info ms-2">${item._files.length} files</span>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="text-warning fw-bold me-3 align-self-center">${formatFileSize(item.size)}</span>
+                                    <button class="btn btn-sm btn-link text-danger p-0" 
+                                            onclick="removeFolder('${item._folderName}')">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-1">
+                                <i class="fas fa-layer-group me-1"></i>
+                                Folder will be uploaded with structure
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            scrollContainer.appendChild(folderCard);
+        } else if (!item._isFolderFile) {
+            const fileCard = document.createElement('div');
+            fileCard.className = 'card bg-dark bg-opacity-25 border-secondary mb-2';
+            fileCard.innerHTML = `
+                <div class="card-body p-2">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0 me-3">
+                            <i class="fas fa-file fa-lg" style="color: #4CAF50;"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div style="word-break: break-word; padding-right: 10px;"  
+                                     title="${escapeHtml(item.name)}">
+                                    ${escapeHtml(item.name)}
+                                </div>
+                                <button class="btn btn-sm btn-danger" onclick="removeUploadFile(${index})"><i class="fas fa-times"></i></button>
+                            </div>
+                            <div class="small text-muted mt-1">
+                                <span class="badge bg-secondary me-2">${item.name.split('.').pop().toUpperCase()}</span>
+                                <span class="text-success">${formatFileSize(item.size)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            scrollContainer.appendChild(fileCard);
+        }
     });
+    
+    fileList.appendChild(scrollContainer);
+    updateLanguage(currentLang);
+}
+
+function removeFolder(folderName) {
+    uploadFilesList = uploadFilesList.filter(item => {
+        if (item._isFolder && item._folderName === folderName) {
+            return false;
+        }
+        if (item._folderName === folderName) {
+            return false;
+        }
+        return true;
+    });
+    
+    updateUploadFileList();
 }
 
 function previewSanitizedFilename(filename) {
@@ -12035,11 +12894,17 @@ async function startUpload() {
     formData.append('path', currentPath);
 
     uploadFilesList.forEach(file => {
-        formData.append('file[]', file);
+        if (file._isFolderFile) {
+            formData.append('files[]', file);
+            formData.append('paths[]', file._fullPath);
+        } else {
+            formData.append('files[]', file);
+            formData.append('paths[]', file.name);
+        }
     });
 
     try {
-        const response = await fetch('?action=upload_file', {
+        const response = await fetch('?action=upload_folder', {
             method: 'POST',
             body: formData
         });
@@ -12047,21 +12912,18 @@ async function startUpload() {
         const data = await response.json();
 
         if (data.success) {
+            const uploadedCount = data.files_uploaded || uploadFilesList.length;
             const successMessage = `${translations['upload_success'] || 'Successfully uploaded'} ` +
-                                   `${data.files.length} ` +
-                                   (data.files.length === 1 
+                                   `${uploadedCount} ` +
+                                   (uploadedCount === 1 
                                     ? (translations['file'] || 'file') 
                                     : (translations['files'] || 'files'));
             
             showLogMessage(successMessage, 'success');
             speakMessage(successMessage, 'success');
 
-            bootstrap.Modal
-                .getInstance(document.getElementById('uploadModal'))
-                .hide();
-
+            bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
             uploadFilesList = [];
-            updateUploadFileList();
             refreshFiles();
         } else {
             const errorMessage = data.error || (translations['uploadFailed'] || 'Upload failed');
@@ -13038,6 +13900,181 @@ async function executeBatchRename() {
         message = (translations['rename_failed_count'] || 'Failed to rename {count} file(s)').replace('{count}', errorCount);
         showLogMessage(message, 'error');
     }
+}
+
+let convertFiles = [];
+
+function showConvertDialog() {
+    if (selectedFiles.size === 0) {
+        showLogMessage(translations['select_files_first'] || 'Please select files first', 'warning');
+        return;
+        return;
+    }
+    
+    convertFiles = Array.from(selectedFiles).filter(path => {
+        const ext = path.split('.').pop().toLowerCase();
+        const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'];
+        return mediaExts.includes(ext);
+    }).map(path => {
+        const name = path.split('/').pop();
+        return {
+            path: path,
+            name: name,
+            nameWithoutExt: name.includes('.') ? name.substring(0, name.lastIndexOf('.')) : name,
+            ext: name.includes('.') ? name.split('.').pop() : ''
+        };
+    });
+    
+    updateConvertFileList();
+    
+    hideFileContextMenu();
+    
+    const modal = new bootstrap.Modal(document.getElementById('convertModal'));
+    modal.show();
+}
+
+function updateConvertFileList() {
+    const listContainer = document.getElementById('convertFileList');
+    const countBadge = document.getElementById('convertFilesCount');
+    
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+    
+    if (convertFiles.length === 0) {
+        listContainer.innerHTML = '<div class="text-center text-muted py-3">' + 
+            (translations['no_files_selected'] || 'No files selected') + '</div>';
+        if (countBadge) countBadge.textContent = '0';
+        return;
+    }
+    
+    convertFiles.forEach((file, index) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+        itemDiv.style.background = 'transparent';
+        itemDiv.style.borderBottom = '1px solid var(--border-color)';
+        
+        const icon = file.ext.match(/(mp3|wav|ogg|flac|m4a|aac)/) ? 'fa-music' : 'fa-video';
+        const color = file.ext.match(/(mp3|wav|ogg|flac|m4a|aac)/) ? '#9C27B0' : '#2196F3';
+        
+        itemDiv.innerHTML = `
+            <div>
+                <i class="fas ${icon} me-2" style="color: ${color}"></i>
+                <span>${escapeHtml(file.name)}</span>
+            </div>
+            <button class="btn btn-sm btn-danger" onclick="removeConvertFile(${index})">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        
+        listContainer.appendChild(itemDiv);
+    });
+    
+    if (countBadge) countBadge.textContent = convertFiles.length;
+}
+
+function removeConvertFile(index) {
+    convertFiles.splice(index, 1);
+    updateConvertFileList();
+}
+
+async function startConvert() {
+    if (convertFiles.length === 0) {
+        showLogMessage(translations['select_files_first'] || 'Please select files first', 'warning');
+        return;
+    }
+    
+    const format = document.getElementById('convertFormat').value;
+    const quality = document.getElementById('convertQuality').value;
+    
+    document.getElementById('convertProgressArea').style.display = 'block';
+    document.getElementById('convertLog').innerHTML = '';
+    
+    let success = 0;
+    let failed = 0;
+    
+    for (let i = 0; i < convertFiles.length; i++) {
+        const file = convertFiles[i];
+        
+        const timestamp = Date.now() + Math.floor(Math.random() * 1000);
+        const outputName = `${file.nameWithoutExt}_${timestamp}.${format}`;
+        
+        const outputPath = currentPath + '/' + outputName;
+        
+        const progress = ((i) / convertFiles.length * 100).toFixed(0);
+        document.getElementById('convertProgressBar').style.width = progress + '%';
+        document.getElementById('convertProgressBar').textContent = progress + '%';
+        document.getElementById('convertProgressText').textContent = `${i}/${convertFiles.length}`;
+        
+        appendConvertLog(
+            (translations['converting_file'] || 'Converting') + `: ${file.name} -> ${outputName}`
+        );
+        
+        try {
+            const response = await fetch('?action=convert_media', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    input: file.path,
+                    output: outputPath,
+                    format: format,
+                    quality: quality
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                success++;
+                appendConvertLog(
+                    `✅ ${translations['convert_success'] || 'Converted successfully'}: ${outputName}`, 
+                    'success'
+                );
+            } else {
+                failed++;
+                appendConvertLog(
+                    `❌ ${translations['convert_failed'] || 'Conversion failed'}: ${data.error}`, 
+                    'error'
+                );
+            }
+        } catch (error) {
+            failed++;
+            appendConvertLog(
+                `❌ ${translations['convert_error'] || 'Conversion error'}: ${error.message}`, 
+                'error'
+            );
+        }
+    }
+    
+    document.getElementById('convertProgressBar').style.width = '100%';
+    document.getElementById('convertProgressBar').textContent = '100%';
+    document.getElementById('convertProgressText').textContent = `${convertFiles.length}/${convertFiles.length}`;
+    
+    const completeMsg = translations['convert_complete'] || 'Conversion complete';
+    appendConvertLog(
+        `\n${completeMsg}: ${success} ${translations['success'] || 'success'}, ${failed} ${translations['failed'] || 'failed'}`, 
+        success > 0 ? 'success' : 'error'
+    );
+    
+    refreshFiles();
+}
+
+function appendConvertLog(message, type = 'normal') {
+    const log = document.getElementById('convertLog');
+    const line = document.createElement('div');
+    
+    let color = '#00ff00';
+    if (type === 'error') color = '#ff6b6b';
+    else if (type === 'success') color = '#4CAF50';
+    
+    line.style.color = color;
+    line.style.marginBottom = '2px';
+    line.textContent = message;
+    
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
 }
 
 window.addEventListener('beforeunload', function(e) {
