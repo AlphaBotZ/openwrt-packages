@@ -1174,6 +1174,33 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    if ($action === 'transcode') {
+        $path = isset($_GET['path']) ? urldecode($_GET['path']) : '';
+        $format = isset($_GET['format']) ? $_GET['format'] : 'mp4';
+        
+        $realPath = realpath($path);
+        if (!$realPath || strpos($realPath, $ROOT_DIR) !== 0) {
+            http_response_code(403);
+            exit;
+        }
+        
+        $ffmpeg = '/usr/bin/ffmpeg';
+        if (!file_exists($ffmpeg)) {
+            http_response_code(500);
+            exit('FFmpeg not found');
+        }
+        
+        header('Content-Type: video/mp4');
+        header('Content-Disposition: inline');
+        
+        $cmd = "$ffmpeg -i " . escapeshellarg($realPath) . 
+               " -c:v libx264 -preset ultrafast -tune zerolatency" .
+               " -c:a aac -f mp4 -movflags frag_keyframe+empty_moov pipe:1 2>/dev/null";
+        
+        passthru($cmd);
+        exit;
+    }
+
     if ($action === 'full_scan') {
         header('Content-Type: application/json');
     
@@ -1297,6 +1324,116 @@ if (isset($_GET['action'])) {
             echo json_encode(['success' => false, 'error' => 'Failed to save playlist']);
         }
     
+        exit;
+    }
+
+    if ($action === 'video_thumbnail') {
+        $path = isset($_GET['path']) ? urldecode($_GET['path']) : '';
+        
+        $realPath = realpath($path);
+        if (!$realPath || strpos($realPath, $ROOT_DIR) !== 0) {
+            http_response_code(404);
+            exit;
+        }
+        
+        $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+        $videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'ogv', 'mpg', 'mpeg'];
+        
+        if (!in_array($ext, $videoExts)) {
+            http_response_code(400);
+            exit;
+        }
+        
+        $ffmpegPath = '/usr/bin/ffmpeg';
+        if (!file_exists($ffmpegPath)) {
+            header('Content-Type: image/svg+xml');
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#2196F3"><path d="M18 9v10H6V9h12zM16 7H8v2h8V7zm2-2H6v2h12V5z"/></svg>';
+            exit;
+        }
+        
+        $cacheDir = './video_thumbs/';
+        if (!is_dir($cacheDir)) {
+            mkdir($cacheDir, 0755, true);
+        }
+        
+        $handle = fopen($realPath, 'rb');
+        $firstChunk = fread($handle, 65536);
+        fclose($handle);
+        
+        $fileSize = filesize($realPath);
+        $contentHash = md5($firstChunk . $fileSize);
+        
+        $cacheFile = $cacheDir . $contentHash . '.jpg';
+        $cacheInfo = $cacheDir . $contentHash . '.json';
+        
+        if (file_exists($cacheFile) && file_exists($cacheInfo)) {
+            $info = json_decode(file_get_contents($cacheInfo), true);
+            if ($info && $info['size'] == $fileSize) {
+                header('Content-Type: image/jpeg');
+                header('Content-Length: ' . filesize($cacheFile));
+                header('Cache-Control: max-age=31536000');
+                header('X-Cache-Hit: true');
+                readfile($cacheFile);
+                exit;
+            }
+        }
+        
+        $cmd = $ffmpegPath . " -ss 00:00:01 -i " . escapeshellarg($realPath) .
+               " -vframes 1 -vf scale=320:-1 -q:v 2 -y " .
+               escapeshellarg($cacheFile) . " 2>&1";
+        
+        exec($cmd, $output, $returnCode);
+        
+        if ($returnCode === 0 && file_exists($cacheFile)) {
+            $cacheInfoData = [
+                'path' => $realPath,
+                'size' => $fileSize,
+                'hash' => $contentHash,
+                'created' => time()
+            ];
+            file_put_contents($cacheInfo, json_encode($cacheInfoData));
+            
+            header('Content-Type: image/jpeg');
+            header('Content-Length: ' . filesize($cacheFile));
+            header('Cache-Control: max-age=31536000');
+            header('X-Cache-Hit: false');
+            readfile($cacheFile);
+        } else {
+            header('Content-Type: image/svg+xml');
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#2196F3"><path d="M18 9v10H6V9h12zM16 7H8v2h8V7zm2-2H6v2h12V5z"/></svg>';
+        }
+        exit;
+    }
+
+    if ($action === 'clean_thumbnail_cache') {
+        $cacheDir = './video_thumbs/';
+        $days = isset($_GET['days']) ? intval($_GET['days']) : 30;
+        
+        if (!is_dir($cacheDir)) {
+            echo json_encode(['success' => true, 'cleaned' => 0]);
+            exit;
+        }
+        
+        $files = glob($cacheDir . '*.jpg');
+        $cleaned = 0;
+        $now = time();
+        
+        foreach ($files as $file) {
+            if ($now - filemtime($file) > $days * 86400) {
+                unlink($file);
+                $infoFile = str_replace('.jpg', '.json', $file);
+                if (file_exists($infoFile)) {
+                    unlink($infoFile);
+                }
+                $cleaned++;
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'cleaned' => $cleaned,
+            'message' => "Cleaned $cleaned old cache files"
+        ]);
         exit;
     }
 
@@ -2575,7 +2712,7 @@ body {
     cursor: pointer;
     position: relative;
     overflow: hidden;
-    border: var(--border-strong);
+    border: var(--border-strong) !important;
     border-left-width: 3px;
     border-left-color: transparent;
     border-radius: 8px;
@@ -2585,24 +2722,6 @@ body {
         transform 0.25s ease,
         border-left-color 0.3s ease;
     will-change: transform;
-}
-
-.side-nav .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 15px;
-    color: var(--text-primary);
-    text-decoration: none;
-    transition: all 0.3s;
-    border: var(--border-strong) !important;
-    border-left: 3px solid transparent;
-    border-radius: 8px;
-    margin: 5px 0;
-    cursor: pointer;
-    letter-spacing: 0.5px;
-    position: relative;
-    overflow: hidden;
 }
 
 .side-nav .nav-item::before {
@@ -2621,6 +2740,20 @@ body {
 .side-nav .nav-item:hover::before {
     width: 300%;
     height: 300%;
+}
+
+#gridContainer::before {
+    content: '';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    height: 475px;
+    background: url('/luci-static/spectra/img/os.svg') no-repeat center;
+    background-size: contain;
+    pointer-events: none;
+    z-index: 0;
 }
 
 .side-nav .nav-item:hover {
@@ -2873,26 +3006,29 @@ body {
     position: relative;
 }
 
-#videoPlayer {
+#videoPlayer,
+#audioPlayer,
+#imageViewer {
     width: 100%;
-    max-height: calc(100vh - 120px);
-    background: #000;
     border-radius: 8px;
+}
+
+#videoPlayer,
+#imageViewer {
+    max-height: calc(100vh - 120px);
     object-fit: contain;
+}
+
+#videoPlayer {
+    background: #000;
 }
 
 #audioPlayer {
-    width: 100%;
     max-width: 600px;
-    border-radius: 8px;
 }
 
 #imageViewer {
-    max-width: 90%;
-    max-height: 80vh;
-    border-radius: 8px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    object-fit: contain;
 }
 
 .fullscreen-player {
@@ -4388,6 +4524,174 @@ list-group:hover {
 #playlistCount {
     color: var(--accent-color) !important;
 }
+
+.player-nav-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 30px;
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.player-content:hover .player-nav-overlay {
+    opacity: 1;
+}
+
+.player-nav-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    border: 2px solid var(--accent-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: all 0.3s ease;
+    transform: scale(0.9);
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+}
+
+.player-nav-btn:hover {
+    background: var(--accent-color);
+    transform: scale(1.1);
+    box-shadow: 0 0 20px var(--accent-secondary);
+}
+
+.player-nav-btn i {
+    font-size: 24px;
+}
+
+.player-nav-btn.prev-btn {
+    margin-right: auto;
+}
+
+.player-nav-btn.next-btn {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .player-nav-overlay {
+        padding: 0 15px;
+    }
+    
+    .player-nav-btn {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .player-nav-btn i {
+        font-size: 18px;
+    }
+}
+
+.player-content {
+    position: relative;
+}
+
+#videoPlayer, #audioPlayer, #imageViewer {
+    position: relative;
+    z-index: 10;
+}
+
+.player-nav-overlay {
+    position: absolute;
+    z-index: 30;
+}
+
+.video-thumb-card {
+    position: relative;
+    overflow: hidden;
+    border: none !important;
+    background: transparent !important;
+}
+
+.video-thumb-card .card-body {
+    padding: 0 !important;
+    position: relative;
+}
+
+.video-thumb-container {
+    position: relative;
+    width: 100%;
+    height: 150px;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.video-thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.video-thumb-card:hover .video-thumb-img {
+    transform: scale(1.05);
+}
+
+.play-icon-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 2;
+}
+
+.video-thumb-card:hover .play-icon-overlay {
+    opacity: 1;
+}
+
+.video-title-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    padding: 20px 10px 10px 10px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 1;
+}
+
+.video-thumb-card:hover .video-title-overlay {
+    opacity: 1;
+}
+
+.duration-badge {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    z-index: 2;
+}
+
+.default-thumb {
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+}
 </style>
 <div class="main-container">
     <div class="content-area" id="contentArea">
@@ -5136,6 +5440,14 @@ list-group:hover {
                             <li data-translate="reason_server_unreachable">Server cannot access the file</li>
                         </ul>
                     </div>
+                <div class="player-nav-overlay">
+                    <div class="player-nav-btn prev-btn" onclick="playPreviousFileMedia()">
+                        <i class="fas fa-step-backward"></i>
+                    </div>
+                        <div class="player-nav-btn next-btn" onclick="playNextFileMedia()">
+                            <i class="fas fa-step-forward"></i>
+                       </div>
+                   </div>
                 </div>
             </div>
         </div>
@@ -6216,8 +6528,64 @@ function actuallyPlayMedia(filePath) {
     const fileExt = fileName.split('.').pop().toLowerCase();
     const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
     const fileDir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+
+    const audioExts = [
+        'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus',
+        'ape', 'wv', 'tta', 'tak', 'dts', 'dsf', 'dff', 'sacd',
+        'mid', 'midi', 'rmi', 'kar', 'ac3', 'eac3', 'truehd', 'thd',
+        'pcm', 'adpcm', 'amr', 'awb', 'sln', 'vox', 'gsm', 'ra',
+        'ram', 'au', 'snd', 'voc', 'cda', '8svx', 'aiff', 'aif',
+        'aifc', 'afc', 'weba', 'mka', 'spx', 'oga', 'tta', 'm3u',
+        'm3u8', 'pls'
+    ];
     
-    const previewUrl = `?preview=1&path=${encodeURIComponent(filePath)}`;
+    const videoExts = [
+        'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'm4v',
+        '3gp', '3g2', 'ogv', 'mpg', 'mpeg', 'mpe', 'mpv', 'm2v',
+        'ts', 'm2ts', 'mts', 'm2t', 'tod', 'mod', 'vro', 'vob',
+        'ifo', 'bup', 'iso', 'img', 'rm', 'rmvb', 'rv', 'ra',
+        'ram', 'qt', 'hdmov', 'moov', 'dv', 'mqv', 'asf', 'asx',
+        'wm', 'wmx', 'wvx', 'divx', 'xvid', 'f4v', 'f4p', 'f4a',
+        'f4b', 'swf', 'fla', 'avchd', 'mxf', 'gxf', 'lxv', 'nsv',
+        'nut', 'nuv', 'ogm', 'ogx', 'bik', 'smk', 'vp6', 'vp7',
+        'vp8', 'vp9', 'av1', 'hevc', 'h264', 'h265'
+    ];
+    
+    const imageExts = [
+        'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'gif', 'bmp', 'webp',
+        'svg', 'svgz', 'ico', 'cur', 'raw', 'cr2', 'cr3', 'crw',
+        'nef', 'nrw', 'arw', 'srf', 'sr2', 'raf', 'dng', 'orf',
+        'rw2', 'pef', 'ptx', 'x3f', 'erf', 'mrw', 'mef', 'mdc',
+        'kdc', 'dcr', 'k25', 'bay', 'bmq', 'ciff', 'psd', 'psb',
+        'ai', 'eps', 'epsf', 'epsi', 'tiff', 'tif', 'djvu', 'djv',
+        'jxr', 'wdp', 'hdp', 'heic', 'heif', 'heics', 'heifs',
+        'avci', 'avcs', 'exr', 'hdr', 'pfm', 'ppm', 'pgm', 'pbm',
+        'pnm', 'pcx', 'tga', 'icb', 'vda', 'vst', 'pix', 'pxr',
+        'xbm', 'xpm', 'wbmp', 'cals', 'fpx', 'fpx', 'pcd', 'psp',
+        'pspimage', 'xcf', 'kra', 'cpt', 'pat', 'abr'
+    ];
+    
+    const directlySupported = [
+        'mp4', 'webm', 'ogg', 'mkv', 'mov',
+        'mp3', 'wav', 'aac', 'm4a', 'flac', 'opus',
+        ...imageExts
+    ];
+
+    const isImage = imageExts.includes(fileExt);
+    const isAudio = audioExts.includes(fileExt);
+    const isVideo = videoExts.includes(fileExt);
+    
+    const needsTranscoding = !isImage && !directlySupported.includes(fileExt);
+
+    let previewUrl;
+    if (needsTranscoding) {
+        const format = isVideo ? 'mp4' : 'mp3';
+        previewUrl = `?action=transcode&path=${encodeURIComponent(filePath)}&format=${format}`;
+        showLogMessage((translations['transcoding_play'] || 'Transcoding: {format} format').replace('{format}', fileExt.toUpperCase()), 'info');
+    } else {
+        previewUrl = `?preview=1&path=${encodeURIComponent(filePath)}`;
+    }
+    
     const audioPlayer = document.getElementById('audioPlayer');
     const videoPlayer = document.getElementById('videoPlayer');
     const imageViewer = document.getElementById('imageViewer');
@@ -6225,9 +6593,7 @@ function actuallyPlayMedia(filePath) {
     const playerArea = document.getElementById('playerArea');
     const playerTitle = document.getElementById('playerTitle');
 
-    if (fileExt !== 'jpg' && fileExt !== 'jpeg' && fileExt !== 'png' && 
-        fileExt !== 'gif' && fileExt !== 'bmp' && fileExt !== 'webp' && 
-        fileExt !== 'svg') {
+    if (!isImage) {
         const playingPrefix = translations['now_playing'] || 'Now playing';
         const playingMessage = `${playingPrefix}：${nameWithoutExt}`;
         showLogMessage(playingMessage);
@@ -6253,11 +6619,7 @@ function actuallyPlayMedia(filePath) {
     audioPlayer.pause();
     videoPlayer.pause();
     
-    playerTitle.innerHTML = `<i class="fas fa-play"></i>${fileName}`;
-    
-    const musicExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
-    const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'];
-    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+    playerTitle.innerHTML = `<i class="fas fa-play"></i>${fileName}${needsTranscoding ? ' (Transcoding in progress)' : ''}`;
     
     audioPlayer.src = '';
     videoPlayer.src = '';
@@ -6327,7 +6689,7 @@ function actuallyPlayMedia(filePath) {
         }
     }
     
-    if (musicExts.includes(fileExt)) {
+    if (isAudio) {
         audioPlayer.onerror = handleMediaError(audioPlayer, translations['audio'] || 'Audio');
         audioPlayer.onended = function() {
             clearAllHighlights();
@@ -6349,8 +6711,14 @@ function actuallyPlayMedia(filePath) {
             clearAllHighlights();
         });
         currentMedia = { type: 'audio', src: previewUrl, path: filePath, ext: fileExt, wasPlaying: false };
+        
+        if (needsTranscoding) {
+            audioPlayer.onloadeddata = function() {
+                playerTitle.innerHTML = `<i class="fas fa-play"></i>${fileName}`;
+            };
+        }
     } 
-    else if (videoExts.includes(fileExt)) {
+    else if (isVideo) {
         videoPlayer.onerror = handleMediaError(videoPlayer, translations['video'] || 'Video');
         videoPlayer.onended = function() {
             clearAllHighlights();
@@ -6372,8 +6740,14 @@ function actuallyPlayMedia(filePath) {
             clearAllHighlights();
         });
         currentMedia = { type: 'video', src: previewUrl, path: filePath, ext: fileExt, wasPlaying: false };
+        
+        if (needsTranscoding) {
+            videoPlayer.onloadeddata = function() {
+                playerTitle.innerHTML = `<i class="fas fa-play"></i>${fileName}`;
+            };
+        }
     } 
-    else if (imageExts.includes(fileExt)) {
+    else if (isImage) {
         imageViewer.onerror = handleMediaError(imageViewer, translations['image'] || 'Image');
         imageViewer.src = previewUrl;
         imageViewer.style.display = 'block';
@@ -6534,6 +6908,7 @@ function updateCurrentFileMediaList() {
     const mediaExts = [
         'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
         'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+        '3gp', '3g2', 'ogv', 'mpg', 'mpeg',
         'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
     ];
     
@@ -6563,6 +6938,7 @@ function updateFileMediaList(filePath) {
         const mediaExts = [
             'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
             'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+            '3gp', '3g2', 'ogv', 'mpg', 'mpeg', 
             'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
         ];
         
@@ -6805,7 +7181,7 @@ function updateRecentList() {
         }
         
         const musicExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
-        const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'];
+        const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'ogv', 'mpg', 'mpeg'];
         
         recentList.innerHTML = recent.slice(0, 20).map(file => {
             const ext = file.split('.').pop().toLowerCase();
@@ -8154,6 +8530,7 @@ async function loadFiles(path) {
             const mediaExts = [
                 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
                 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+                '3gp', '3g2', 'ogv', 'mpg', 'mpeg', 
                 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
             ];
             
@@ -8451,6 +8828,7 @@ function handleRightClick(event) {
         
         const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 
                            'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+                           '3gp', '3g2', 'ogv', 'mpg', 'mpeg',
                            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
         if (!isDir && mediaExts.includes(ext)) {
             showMenuItem('filePlayItem');
@@ -8605,6 +8983,7 @@ function handleDoubleClick(path, isDir, type) {
         const mediaExts = [
             'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
             'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+            '3gp', '3g2', 'ogv', 'mpg', 'mpeg',
             'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'
         ];
         
@@ -8792,13 +9171,56 @@ function handleFileClick(event, filePath) {
             const fileName = filePath.split('/').pop();
             const ext = fileName.toLowerCase().split('.').pop();
             
-            const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
-            const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'];
-            const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+            const audioExts = [
+                'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus',
+                'ape', 'wv', 'tta', 'tak', 'dts', 'dsf', 'dff', 'sacd',
+                'mid', 'midi', 'rmi', 'kar',
+                'ac3', 'eac3', 'truehd', 'thd', 'pcm', 'adpcm', 'amr',
+                'awb', 'sln', 'vox', 'gsm', 'ra', 'ram', 'au', 'snd',
+                'voc', 'cda', '8svx', 'aiff', 'aif', 'aifc', 'afc',
+                'weba', 'mka', 'spx', 'oga', 'tta', 'm3u', 'm3u8', 'pls'
+            ];
+            
+            const videoExts = [
+                'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'm4v',
+                '3gp', '3g2', 'ogv', 'mpg', 'mpeg', 'mpe', 'mpv', 'm2v',
+                'ts', 'm2ts', 'mts', 'm2t', 'tod', 'mod', 'vro',
+                'vob', 'ifo', 'bup', 'iso', 'img',
+                'rm', 'rmvb', 'rv', 'ra', 'ram',
+                'qt', 'hdmov', 'moov', 'dv', 'mqv',
+                'asf', 'asx', 'wm', 'wmx', 'wvx',
+                'divx', 'xvid', 'f4v', 'f4p', 'f4a', 'f4b',
+                'swf', 'fla', 'avchd', 'mxf', 'gxf', 'lxv',
+                'nsv', 'nut', 'nuv', 'ogm', 'ogx', 'bik', 'smk',
+                'vp6', 'vp7', 'vp8', 'vp9', 'av1', 'hevc', 'h264', 'h265'
+            ];
+            
+            const imageExts = [
+                'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'gif', 'bmp', 'webp',
+                'svg', 'svgz', 'ico', 'cur',
+                'raw', 'cr2', 'cr3', 'crw', 'nef', 'nrw', 'arw', 'srf', 'sr2',
+                'raf', 'dng', 'orf', 'rw2', 'pef', 'ptx', 'x3f', 'erf', 'mrw',
+                'mef', 'mdc', 'kdc', 'dcr', 'k25', 'bay', 'bmq', 'ciff',
+                'psd', 'psb', 'ai', 'eps', 'epsf', 'epsi',
+                'tiff', 'tif', 'djvu', 'djv', 'jxr', 'wdp', 'hdp',
+                'heic', 'heif', 'heics', 'heifs', 'avci', 'avcs',
+                'exr', 'hdr', 'pfm', 'ppm', 'pgm', 'pbm', 'pnm',
+                'pcx', 'tga', 'icb', 'vda', 'vst', 'pix', 'pxr',
+                'xbm', 'xpm', 'wbmp', 'cals', 'fpx', 'fpx', 'pcd',
+                'psp', 'pspimage', 'xcf', 'kra', 'cpt', 'pat', 'abr'
+            ];
+            
             const textExts = [
-                'txt', 'log', 'conf', 'ini', 'json', 'xml', 'html', 'htm',
-                'css', 'js', 'php', 'py', 'sh', 'md', 'yaml', 'yml',
-                'csv', 'sql', 'bat', 'cmd'
+                'txt', 'log', 'conf', 'ini', 'cfg', 'config', 'properties',
+                'json', 'xml', 'html', 'htm', 'xhtml', 'css', 'scss', 'sass', 'less',
+                'js', 'jsx', 'ts', 'tsx', 'vue', 'php', 'php3', 'php4', 'php5', 'php7', 'phtml',
+                'py', 'pyw', 'rb', 'pl', 'pm', 'lua', 'go', 'rs', 'swift', 'kt', 'kts', 'scala',
+                'sh', 'bash', 'zsh', 'fish', 'ash', 'dash', 'bat', 'cmd', 'ps1', 'psm1',
+                'md', 'markdown', 'rst', 'tex', 'latex', 'yaml', 'yml', 'toml',
+                'csv', 'tsv', 'sql', 'mysql', 'pgsql', 'plsql',
+                'diff', 'patch', 'gitignore', 'gitattributes', 'editorconfig',
+                'dockerfile', 'makefile', 'cmake', 'gradle',
+                'hosts', 'nginx', 'apache', 'htaccess'
             ];
             
             if (audioExts.includes(ext) || videoExts.includes(ext) || imageExts.includes(ext)) {
@@ -9150,6 +9572,7 @@ function showFileMenuItems(isDir, ext) {
     
     const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 
                        'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm',
+                       '3gp', '3g2', 'ogv', 'mpg', 'mpeg',
                        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
     if (!isDir && mediaExts.includes(ext)) {
         showMenuItem('filePlayItem');
@@ -9759,6 +10182,60 @@ async function extractArchiveHere(filePath) {
 
 function dirname(path) {
     return path.substring(0, path.lastIndexOf('/')) || '/';
+}
+
+function browseForExtractPath() {
+    const path = prompt('Please enter the extraction target path.:', currentPath);
+    if (path) {
+        document.getElementById('extractDestination').value = path;
+    }
+}
+
+async function performExtract() {
+    if (selectedFiles.size === 0) return;
+    
+    const path = Array.from(selectedFiles)[0];
+    const destination = document.getElementById('extractDestination').value.trim();
+    
+    if (!destination) {
+        return;
+    }
+    
+    const modal = bootstrap.Modal.getInstance(document.getElementById('extractModal'));
+    if (modal) modal.hide();
+
+    try {
+        const formData = new FormData();
+        formData.append('path', path);
+        formData.append('action_type', 'extract');
+        formData.append('destination', destination);
+        
+        const response = await fetch('?action=archive_action', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const successMessage = translations['archive_extracted_successfully'] || 'Archive extracted successfully';
+            showLogMessage(successMessage, 'success');
+            speakMessage(successMessage, 'success');
+            
+            refreshFiles();
+        } else {
+            const errorMessage = data.error || translations['failed_to_extract_archive'] || 'Failed to extract archive';
+            showLogMessage(errorMessage, 'error');
+            speakMessage(errorMessage, 'error');
+        }
+    } catch (error) {
+        const errorMessage = `${translations['failed_to_extract_archive'] || 'Failed to extract archive'}: ${error.message}`;
+        showLogMessage(errorMessage, 'error');
+        speakMessage(errorMessage, 'error');
+    }
+    
+    selectedFiles.clear();
+    updateSelectionInfo();
 }
 
 function showExtractDialog() {
@@ -10462,6 +10939,15 @@ function getMimeType(ext) {
         'wmv': 'video/x-ms-wmv',
         'flv': 'video/x-flv',
         'webm': 'video/webm',
+        '3gp': 'video/3gpp',
+        '3g2': 'video/3gpp2',
+        'ogv': 'video/ogg',
+        'mpg': 'video/mpeg',
+        'mpeg': 'video/mpeg',
+        'm4v': 'video/x-m4v',
+        'ts': 'video/mp2t',
+        'mts': 'video/mpeg',
+        'm2ts': 'video/mpeg',
         
         'pdf': 'application/pdf',
         
@@ -10689,7 +11175,7 @@ async function searchFiles() {
                     fileNameDisplay = escapeHtml(file.name).replace(regex, '<span class="bg-warning text-dark">$1</span>');
                 }
 
-                const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+                const mediaExts = [ 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', '3g2', 'ogv', 'mpg', 'mpeg', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg' ]
                 const fileExt = file.name.split('.').pop().toLowerCase();
                 const isMedia = mediaExts.includes(fileExt);
                 
@@ -12572,6 +13058,7 @@ function getFileIcon(filename, ext, isDir) {
     if (['ovpn', 'wg'].includes(lowerExt)) {
         return '<i class="fas fa-shield-alt fa-2x" style="color: #4CAF50;"></i>';
     }
+
     
     if (['js', 'jsx', 'mjs', 'cjs'].includes(lowerExt)) return '<i class="fab fa-js-square fa-2x" style="color: #FFD600;"></i>';
     if (['ts', 'tsx'].includes(lowerExt)) return '<i class="fas fa-code fa-2x" style="color: #1976D2;"></i>';
@@ -12603,13 +13090,119 @@ function getFileIcon(filename, ext, isDir) {
     if (['txt', 'log', 'conf', 'ini', 'cfg', 'properties', 'env', 'gitignore', 'editorconfig', 'dockerfile', 'makefile'].includes(lowerExt)) return '<i class="fas fa-file-alt fa-2x" style="color: #757575;"></i>';
     if (['md', 'markdown', 'mdx'].includes(lowerExt)) return '<i class="fab fa-markdown fa-2x" style="color: #000000;"></i>';
     
-    if (['zip', 'tar', 'gz', 'bz2', '7z', 'rar', 'tgz', 'tbz2', 'xz', 'lz', 'cab', 'iso', 'apk', 'deb', 'rpm', 'dmg'].includes(lowerExt)) return '<i class="fas fa-file-archive fa-2x" style="color: #FF9800;"></i>';
-    
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif', 'raw', 'cr2', 'nef', 'psd', 'ai', 'eps'].includes(lowerExt)) return '<i class="fas fa-file-image fa-2x" style="color: #4CAF50;"></i>';
-    
-    if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus', 'mid', 'midi'].includes(lowerExt)) return '<i class="fas fa-file-audio fa-2x" style="color: #9C27B0;"></i>';
-    
-    if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', 'ts', 'm2ts', 'rmvb', '3gp', 'vob', 'ogv', 'mts'].includes(lowerExt)) return '<i class="fas fa-file-video fa-2x" style="color: #2196F3;"></i>';
+    if (['zip'].includes(lowerExt)) 
+        return '<i class="fas fa-file-zipper fa-2x" style="color: #FF9800;"></i>';
+    if (['tar'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #795548;"></i>';
+    if (['gz'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #9C27B0;"></i>';
+    if (['bz2'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #4CAF50;"></i>';
+    if (['xz'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #00BCD4;"></i>';
+    if (['7z'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #E91E63;"></i>';
+    if (['rar'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #F44336;"></i>';
+    if (['tgz', 'tbz2'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #FF5722;"></i>';
+    if (['lz', 'lzma'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #673AB7;"></i>';
+    if (['cab'].includes(lowerExt)) 
+        return '<i class="fas fa-file-archive fa-2x" style="color: #3F51B5;"></i>';
+    if (['iso'].includes(lowerExt)) 
+        return '<i class="fas fa-compact-disc fa-2x" style="color: #607D8B;"></i>';
+    if (['apk'].includes(lowerExt)) 
+        return '<i class="fab fa-android fa-2x" style="color: #3DDC84;"></i>';
+    if (['deb'].includes(lowerExt)) 
+        return '<i class="fab fa-debian fa-2x" style="color: #A81D33;"></i>';
+    if (['rpm'].includes(lowerExt)) 
+        return '<i class="fab fa-redhat fa-2x" style="color: #EE0000;"></i>';
+    if (['dmg'].includes(lowerExt)) 
+        return '<i class="fas fa-apple-alt fa-2x" style="color: #999999;"></i>';  
+
+    if (['jpg', 'jpeg'].includes(lowerExt)) 
+        return '<i class="fas fa-image fa-2x" style="color: #4CAF50;"></i>';
+    if (['png'].includes(lowerExt)) 
+        return '<i class="fas fa-image fa-2x" style="color: #2196F3;"></i>';
+    if (['gif'].includes(lowerExt)) 
+        return '<i class="fas fa-image fa-2x" style="color: #FF9800;"></i>';
+    if (['bmp'].includes(lowerExt)) 
+        return '<i class="fas fa-image fa-2x" style="color: #9C27B0;"></i>';
+    if (['webp'].includes(lowerExt)) 
+        return '<i class="fas fa-image fa-2x" style="color: #00BCD4;"></i>';
+    if (['svg'].includes(lowerExt)) 
+        return '<i class="fas fa-draw-polygon fa-2x" style="color: #FFC107;"></i>';
+    if (['ico'].includes(lowerExt)) 
+        return '<i class="fas fa-circle fa-2x" style="color: #607D8B;"></i>';
+
+    if (['tiff', 'tif', 'heic', 'heif', 'raw', 'cr2', 'nef', 'psd', 'ai', 'eps'].includes(lowerExt)) 
+        return '<i class="fas fa-file-image fa-2x" style="color: #4CAF50;"></i>';
+
+    if (['mp3'].includes(lowerExt)) 
+        return '<i class="fas fa-music fa-2x" style="color: #FF6B6B;"></i>';
+    if (['wav'].includes(lowerExt)) 
+        return '<i class="fas fa-wave-square fa-2x" style="color: #45B7D1;"></i>';
+    if (['ogg'].includes(lowerExt)) 
+        return '<i class="fas fa-circle fa-2x" style="color: #96CEB4;"></i>';
+    if (['flac'].includes(lowerExt)) 
+        return '<i class="fas fa-compact-disc fa-2x" style="color: #4ECDC4;"></i>';
+    if (['m4a', 'aac'].includes(lowerExt)) 
+        return '<i class="fas fa-headphones fa-2x" style="color: #FFA07A;"></i>';
+
+    if (['wma', 'opus', 'mid', 'midi'].includes(lowerExt)) 
+        return '<i class="fas fa-file-audio fa-2x" style="color: #9C27B0;"></i>';
+
+    if (['mp4'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #2196F3;"></i>';
+    if (['avi'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #4CAF50;"></i>';
+    if (['mkv'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #9C27B0;"></i>';
+    if (['mov'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #FF9800;"></i>';
+    if (['wmv'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #607D8B;"></i>';
+    if (['flv'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #F44336;"></i>';
+    if (['webm'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #00BCD4;"></i>';
+    if (['m4v'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #FF6B6B;"></i>';
+    if (['mpg', 'mpeg'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #795548;"></i>';
+    if (['ts', 'm2ts'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #673AB7;"></i>';
+    if (['rmvb'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #E91E63;"></i>';
+    if (['3gp'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #3F51B5;"></i>';
+    if (['vob'].includes(lowerExt)) 
+        return '<i class="fas fa-compact-disc fa-2x" style="color: #FFC107;"></i>';
+    if (['ogv'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #4ECDC4;"></i>';
+    if (['mts'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #FF5722;"></i>';
+
+    if (['mp4'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #2196F3;"></i>';
+    if (['avi'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #4CAF50;"></i>';
+    if (['mkv'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #9C27B0;"></i>';
+    if (['mov'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #FF9800;"></i>';
+    if (['wmv'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #607D8B;"></i>';
+    if (['flv'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #F44336;"></i>';
+    if (['webm'].includes(lowerExt)) 
+        return '<i class="fas fa-video fa-2x" style="color: #00BCD4;"></i>';
+    if (['m4v'].includes(lowerExt)) 
+        return '<i class="fas fa-film fa-2x" style="color: #FF6B6B;"></i>';
+
+    if (['mpg', 'mpeg', 'ts', 'm2ts', 'rmvb', '3gp', 'vob', 'ogv', 'mts'].includes(lowerExt)) 
+        return '<i class="fas fa-file-video fa-2x" style="color: #2196F3;"></i>'; 
     
     if (['exe', 'msi', 'app', 'bat', 'cmd', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'psm1', 'com'].includes(lowerExt)) return '<i class="fas fa-cog fa-2x" style="color: #795548;"></i>';
     if (['jar'].includes(lowerExt)) return '<i class="fab fa-java fa-2x" style="color: #007396;"></i>';
@@ -14135,7 +14728,7 @@ function showConvertDialog() {
     
     convertFiles = Array.from(selectedFiles).filter(path => {
         const ext = path.split('.').pop().toLowerCase();
-        const mediaExts = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'];
+        const mediaExts = [ 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', '3g2', 'ogv', 'mpg', 'mpeg']
         return mediaExts.includes(ext);
     }).map(path => {
         const name = path.split('/').pop();
@@ -14421,62 +15014,190 @@ document.addEventListener('DOMContentLoaded', () => {
                 const extIndex = fileName.lastIndexOf('.');
                 const nameWithoutExt = extIndex !== -1 ? fileName.substring(0, extIndex) : fileName;
                 const fileExt = fileName.substring(extIndex + 1).toLowerCase();
-                
+                const isVideo = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', '3gp', 'ogv', 'mpg', 'mpeg'].includes(fileExt);
+                const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExt);
+                const isAudio = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(fileExt);
+    
                 let iconClass = 'fa-file';
                 let iconColor = '#757575';
-                
-                if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(fileExt)) {
+    
+                if (isAudio) {
                     iconClass = 'fa-music';
                     iconColor = '#9C27B0';
-                } else if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(fileExt)) {
+                } else if (isVideo) {
                     iconClass = 'fa-video';
                     iconColor = '#2196F3';
-                } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(fileExt)) {
+                } else if (isImage) {
                     iconClass = 'fa-image';
                     iconColor = '#4CAF50';
                 }
                 
                 const col = document.createElement('div');
                 col.className = 'col-6 col-md-4 col-lg-3';
-                
+
                 const card = document.createElement('div');
-                card.className = 'card h-100 playlist-card';
+                card.className = 'card h-100 playlist-card video-thumb-card';
                 card.style.cursor = 'pointer';
                 card.style.transition = 'all 0.3s ease';
+                card.style.position = 'relative';
+                card.style.overflow = 'hidden';
                 card.setAttribute('data-path', file);
                 card.setAttribute('data-index', index);
+                card.setAttribute('data-ext', fileExt);
                 card.setAttribute('title', fileName);
-                
+
+                let thumbnailHtml = '';
+
+                if (isVideo) {
+                    const thumbnailUrl =
+                        `?action=video_thumbnail&path=${encodeURIComponent(file)}&t=${Date.now()}`;
+
+                    thumbnailHtml = `
+                        <div class="video-thumb-container"
+                             style="width: 100%; height: 150px; background: #000; position: relative;">
+                            <img class="video-thumb-img"
+                                 src="${thumbnailUrl}"
+                                 alt="${escapeHtml(fileName)}"
+                                 style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                                 onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\\'fas ${iconClass}\\' style=\\'font-size: 3rem; color: ${iconColor}; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);\\'></i>';">
+                            <div class="play-icon-overlay"
+                                 style="position: absolute; top: 50%; left: 50%;
+                                        transform: translate(-50%, -50%);
+                                        opacity: 0; transition: opacity 0.3s;">
+                                 <i class="fas fa-play-circle"
+                                     style="font-size: 3rem;
+                                         color: rgba(255,255,255,0.9);
+                                         filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3));">
+                                </i>
+                            </div>
+
+                            <div class="duration-badge"
+                                 style="position: absolute; bottom: 5px; right: 5px;
+                                        background: rgba(0,0,0,0.7);
+                                        color: white; padding: 2px 6px;
+                                        border-radius: 4px; font-size: 0.8rem;">
+                                <i class="fas fa-clock"></i> --:--
+                            </div>
+                        </div>
+                    `;
+                } else if (isImage) {
+                    const imageUrl = `?preview=1&path=${encodeURIComponent(file)}`;
+                    thumbnailHtml = `
+                        <div class="image-thumb-container"
+                             style="width: 100%; height: 150px; background: #f0f0f0; position: relative; overflow: hidden;">
+                            <img class="image-thumb-img"
+                                 src="${imageUrl}"
+                                 alt="${escapeHtml(fileName)}"
+                                 style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                                 loading="lazy"
+                                 onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\\'fas ${iconClass}\\' style=\\'font-size: 3rem; color: ${iconColor}; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);\\'></i>';">
+                            <div class="play-icon-overlay"
+                                 style="position: absolute; top: 50%; left: 50%;
+                                        transform: translate(-50%, -50%);
+                                        opacity: 0; transition: opacity 0.3s;">
+                                <i class="fas fa-search-plus"
+                                   style="font-size: 2.5rem;
+                                          color: rgba(255,255,255,0.9);
+                                          filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3));">
+                                </i>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    thumbnailHtml = `
+                        <div class="default-thumb"
+                             style="height: 150px; display: flex;
+                                    align-items: center; justify-content: center;
+                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <i class="fas ${iconClass} fa-3x"
+                               style="color: white;"></i>
+                        </div>
+                    `;
+                }
+
                 card.innerHTML = `
-                    <div class="card-body text-center p-3">
-                        <div class="position-absolute top-0 start-0 m-2">
-                            <span class="badge bg-secondary">${index + 1}</span>
+                    <div class="card-body p-0">
+                        ${thumbnailHtml}
+
+                        <div class="video-title-overlay"
+                             style="position: absolute; bottom: 0; left: 0; right: 0;
+                                    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+                                    padding: 20px 10px 10px 10px;
+                                    opacity: 0; transition: opacity 0.3s;">
+
+                            <div class="text-white small text-truncate"
+                                 style="text-shadow: 1px 1px 2px rgba(0,0,0,0.5);"
+                                 title="${escapeHtml(nameWithoutExt)}">
+                                ${truncateFileName(nameWithoutExt, 20)}
+                            </div>
+
+                            <div class="d-flex justify-content-between mt-1">
+                                <span class="badge bg-primary"
+                                      style="font-size: 0.7rem;">
+                                    ${fileExt.toUpperCase()}
+                                </span>
+
+                                <span class="badge bg-secondary video-duration-badge"
+                                      style="font-size: 0.7rem;">
+                                    --:--
+                                </span>
+                            </div>
                         </div>
-                        <i class="fas ${iconClass} fa-3x mb-3" style="color: ${iconColor};"></i>
-                        <div class="card-title h6 text-truncate mb-2">
-                            ${truncateFileName(nameWithoutExt, 15)}
-                        </div>
-                        <div class="small text-muted">
-                            ${fileExt.toUpperCase()}
+
+                        <div class="position-absolute top-0 start-0 m-2"
+                             style="z-index: 2;">
+                            <span class="badge bg-secondary">
+                                ${index + 1}
+                            </span>
                         </div>
                     </div>
                 `;
-                
+
+                if (isVideo) {
+                    getVideoDuration(file)
+                        .then(duration => {
+                            const durationBadge = card.querySelector('.duration-badge');
+                            const durationSpan = card.querySelector('.video-duration-badge');
+
+                            if (durationBadge) {
+                                durationBadge.innerHTML =
+                                    `<i class="fas fa-clock"></i> ${duration}`;
+                            }
+
+                            if (durationSpan) {
+                                durationSpan.textContent = duration;
+                            }
+                        })
+                        .catch(() => {});
+                }
+
+                card.addEventListener('mouseenter', () => {
+                    card.style.transform = 'translateY(-5px)';
+                    card.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
+
+                    const titleOverlay = card.querySelector('.video-title-overlay');
+                    const playIcon = card.querySelector('.play-icon-overlay');
+
+                    if (titleOverlay) titleOverlay.style.opacity = '1';
+                    if (playIcon) playIcon.style.opacity = '1';
+                });
+
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'translateY(0)';
+                    card.style.boxShadow = 'none';
+
+                    const titleOverlay = card.querySelector('.video-title-overlay');
+                    const playIcon = card.querySelector('.play-icon-overlay');
+
+                    if (titleOverlay) titleOverlay.style.opacity = '0';
+                    if (playIcon) playIcon.style.opacity = '0';
+                });
+
                 card.addEventListener('click', () => {
                     currentMediaList = playlist;
                     playMedia(file);
                 });
-                
-                card.addEventListener('mouseenter', () => {
-                    card.style.transform = 'translateY(-5px)';
-                    card.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
-                });
-                
-                card.addEventListener('mouseleave', () => {
-                    card.style.transform = 'translateY(0)';
-                    card.style.boxShadow = 'none';
-                });
-                
+
                 col.appendChild(card);
                 playlistContainer.appendChild(col);
             });
@@ -14559,6 +15280,36 @@ function highlightCurrentPlaylistCard() {
                 });
             }, 100);
         }
+    });
+}
+
+async function getVideoDuration(videoPath) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.src = `?preview=1&path=${encodeURIComponent(videoPath)}`;
+        
+        video.onloadedmetadata = function() {
+            const duration = video.duration;
+            URL.revokeObjectURL(video.src);
+            
+            const hours = Math.floor(duration / 3600);
+            const minutes = Math.floor((duration % 3600) / 60);
+            const seconds = Math.floor(duration % 60);
+            
+            let durationStr;
+            if (hours > 0) {
+                durationStr = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            } else {
+                durationStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            resolve(durationStr);
+        };
+        
+        video.onerror = function() {
+            resolve('--:--');
+        };
     });
 }
 
