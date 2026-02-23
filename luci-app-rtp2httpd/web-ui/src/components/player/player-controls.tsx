@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import {
 	History,
 	Maximize,
@@ -17,7 +18,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlayerTranslation } from "../../hooks/use-player-translation";
 import type { Locale } from "../../lib/locale";
-import { cn } from "../../lib/utils";
 import type { Channel, EPGProgram } from "../../types/player";
 
 interface PlayerControlsProps {
@@ -81,9 +81,8 @@ export function PlayerControls({
 	const [hoverPosition, setHoverPosition] = useState<number | null>(null);
 	const [isFullscreen, setIsFullscreen] = useState(false);
 
-	// Check if catchup is supported
-	const activeSource = channel.sources[activeSourceIndex] ?? channel.sources[0];
-	const isCatchupSupported = Boolean(activeSource?.catchup && activeSource?.catchupSource);
+	// Check if any source on this channel supports catchup
+	const isCatchupSupported = channel.sources.some((s) => s.catchup && s.catchupSource);
 
 	const { startTime, endTime, duration } = useMemo(() => {
 		if (!currentProgram) {
@@ -228,8 +227,8 @@ export function PlayerControls({
 					aria-valuemax={100}
 					aria-valuenow={Math.round(progress)}
 					aria-label={t("seekTo")}
-					className={cn(
-						"group relative h-2 rounded-full bg-white/20 transition-all",
+					className={clsx(
+						"group relative h-2 rounded-full bg-white/20 transition-[height,box-shadow] duration-150",
 						isCatchupSupported ? "cursor-pointer hover:h-3" : "cursor-default",
 					)}
 					onMouseDown={isCatchupSupported ? handleMouseDown : undefined}
@@ -237,7 +236,7 @@ export function PlayerControls({
 					onMouseLeave={isCatchupSupported ? handleMouseLeave : undefined}
 				>
 					<div
-						className="absolute left-0 top-0 h-full rounded-full bg-blue-500 transition-all"
+						className="absolute left-0 top-0 h-full rounded-full bg-blue-500 transition-[width] duration-150"
 						style={{ width: `${progress}%` }}
 					/>
 
@@ -256,8 +255,8 @@ export function PlayerControls({
 					)}
 
 					<div
-						className={cn(
-							"absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-lg transition-all",
+						className={clsx(
+							"absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-lg transition-[left] duration-150",
 							isCatchupSupported && "group-hover:h-4 group-hover:w-4",
 						)}
 						style={{ left: `${progress}%` }}
@@ -273,7 +272,7 @@ export function PlayerControls({
 					<button
 						type="button"
 						onClick={onPlayPause}
-						className="rounded-full p-1.5 md:p-2 text-white transition-all cursor-pointer hover:bg-white/20 active:scale-95"
+						className="rounded-full p-1.5 md:p-2 text-white transition cursor-pointer hover:bg-white/20 active:scale-95"
 						title={isPlaying ? t("pause") : t("play")}
 					>
 						{isPlaying ? <Pause className="h-5 w-5 md:h-7 md:w-7" /> : <Play className="h-5 w-5 md:h-7 md:w-7" />}
@@ -284,7 +283,7 @@ export function PlayerControls({
 						<button
 							type="button"
 							onClick={onMuteToggle}
-							className="rounded-full p-1.5 md:p-2 text-white transition-all cursor-pointer hover:bg-white/20 active:scale-95"
+							className="rounded-full p-1.5 md:p-2 text-white transition cursor-pointer hover:bg-white/20 active:scale-95"
 							title={isMuted ? t("unmute") : t("mute")}
 						>
 							{isMuted ? (
@@ -299,7 +298,7 @@ export function PlayerControls({
 						</button>
 
 						{/* Volume Slider */}
-						<div className="absolute bottom-full left-1/2 -translate-x-1/2 rounded bg-black/60 backdrop-blur-sm px-2 md:px-3 py-2 shadow-lg cursor-pointer opacity-0 invisible group-hover/volume:opacity-100 group-hover/volume:visible transition-all duration-150">
+						<div className="absolute bottom-full left-1/2 -translate-x-1/2 rounded bg-black/60 backdrop-blur-sm px-2 md:px-3 py-2 shadow-lg cursor-pointer opacity-0 invisible group-hover/volume:opacity-100 group-hover/volume:visible transition-[opacity,visibility] duration-150">
 							<input
 								type="range"
 								min="0"
@@ -333,7 +332,7 @@ export function PlayerControls({
 				<div className="flex items-center gap-1 md:gap-2">
 					{/* Live/Catchup Indicator & Go Live Button */}
 					{isLive ? (
-						<span className="flex items-center gap-1 md:gap-1.5 p-1.5 md:p-2 text-xs md:text-sm font-semibold text-white">
+						<span className="flex items-center gap-1 md:gap-1.5 p-1.5 md:p-2 text-xs md:text-sm font-medium text-white">
 							<span className="h-1.5 w-1.5 md:h-2 md:w-2 animate-pulse rounded-full bg-red-600" />
 							{t("live")}
 						</span>
@@ -341,7 +340,7 @@ export function PlayerControls({
 						<button
 							type="button"
 							onClick={() => onSeek(new Date())}
-							className="rounded-full p-1.5 md:p-2 text-white transition-all hover:bg-white/20 active:scale-95 cursor-pointer text-xs md:text-sm font-semibold"
+							className="rounded-full px-2 py-1 md:px-2.5 md:py-1.5 text-white transition hover:bg-white/20 active:scale-95 cursor-pointer text-xs md:text-sm font-medium"
 						>
 							{t("goLive")}
 						</button>
@@ -352,31 +351,33 @@ export function PlayerControls({
 						<div className="group/source relative flex items-center focus-within:z-10" tabIndex={-1}>
 							<button
 								type="button"
-								className="rounded-full px-2 py-1 md:px-2.5 md:py-1.5 text-xs md:text-sm font-medium text-white transition-all hover:bg-white/20 cursor-pointer"
+								className="rounded-full px-2 py-1 md:px-2.5 md:py-1.5 text-xs md:text-sm font-medium text-white transition hover:bg-white/20 active:scale-95 cursor-pointer"
 							>
 								{channel.sources[activeSourceIndex]?.label || `${t("source")} ${activeSourceIndex + 1}`}
 							</button>
-							<div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 rounded bg-black/60 backdrop-blur-sm py-1 shadow-lg opacity-0 invisible group-hover/source:opacity-100 group-hover/source:visible group-focus-within/source:opacity-100 group-focus-within/source:visible transition-all duration-150">
-								{channel.sources.map((source, index) => (
-									<button
-										type="button"
-										key={source.url}
-										onClick={() => onSourceChange(index)}
-										className={cn(
-											"block w-full whitespace-nowrap px-3 py-1.5 text-xs md:text-sm text-left transition-colors cursor-pointer",
-											index === activeSourceIndex ? "text-primary font-medium" : "text-white/80 hover:bg-white/10",
-										)}
-									>
-										<span className="flex items-center gap-2">
-											{!isLive && source.catchup && source.catchupSource ? (
-												<History className="h-3 w-3" />
-											) : (
-												<Tv className="h-3 w-3" />
+							<div className="absolute bottom-full left-1/2 -translate-x-1/2 rounded bg-black/60 backdrop-blur-sm py-1 shadow-lg opacity-0 invisible group-hover/source:opacity-100 group-hover/source:visible group-focus-within/source:opacity-100 group-focus-within/source:visible transition-[opacity,visibility] duration-150">
+								{channel.sources
+									.map((source, index) => ({ source, index }))
+									.filter(({ source }) => isLive || (source.catchup && source.catchupSource))
+									.map(({ source, index }) => (
+										<button
+											type="button"
+											key={source.url}
+											onClick={(e) => {
+												onSourceChange(index);
+												e.currentTarget.blur();
+											}}
+											className={clsx(
+												"block w-full whitespace-nowrap px-3 py-1.5 text-xs md:text-sm text-left transition-colors cursor-pointer",
+												index === activeSourceIndex ? "text-primary font-medium" : "text-white/80 hover:bg-white/10",
 											)}
-											{source.label || `${t("source")} ${index + 1}`}
-										</span>
-									</button>
-								))}
+										>
+											<span className="flex items-center gap-2">
+												{!isLive ? <History className="h-3 w-3" /> : <Tv className="h-3 w-3" />}
+												{source.label || `${t("source")} ${index + 1}`}
+											</span>
+										</button>
+									))}
 							</div>
 						</div>
 					)}
@@ -385,7 +386,7 @@ export function PlayerControls({
 					<button
 						type="button"
 						onClick={onFullscreen}
-						className="rounded-full p-1.5 md:p-2 text-white transition-all hover:bg-white/20 active:scale-95 cursor-pointer"
+						className="rounded-full p-1.5 md:p-2 text-white transition hover:bg-white/20 active:scale-95 cursor-pointer"
 						title={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
 					>
 						{isFullscreen ? (
@@ -400,7 +401,7 @@ export function PlayerControls({
 						<button
 							type="button"
 							onClick={onPiPToggle}
-							className="rounded-full p-1.5 md:p-2 text-white transition-all hover:bg-white/20 active:scale-95 cursor-pointer"
+							className="rounded-full p-1.5 md:p-2 text-white transition hover:bg-white/20 active:scale-95 cursor-pointer"
 							title={isPiP ? t("exitPictureInPicture") : t("pictureInPicture")}
 						>
 							{isPiP ? (
@@ -416,7 +417,7 @@ export function PlayerControls({
 						<button
 							type="button"
 							onClick={onToggleSidebar}
-							className="hidden md:flex rounded-full p-1.5 md:p-2 text-white transition-all hover:bg-white/20 active:scale-95 cursor-pointer"
+							className="hidden md:flex rounded-full p-1.5 md:p-2 text-white transition hover:bg-white/20 active:scale-95 cursor-pointer"
 							title={showSidebar ? t("hideSidebar") : t("showSidebar")}
 						>
 							{showSidebar ? (

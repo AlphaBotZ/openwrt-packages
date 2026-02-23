@@ -1,4 +1,5 @@
-import type mpegts from "@rtp2httpd/mpegts.js";
+import type { PlayerSegment } from "@rtp2httpd/mpegts.js";
+import { clsx } from "clsx";
 import { Activity, StrictMode, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -19,15 +20,16 @@ import {
 	getForce16x9,
 	getLastChannelId,
 	getLastSourceIndex,
+	getMp2SoftDecode,
 	getSidebarVisible,
 	saveCatchupTailOffset,
 	saveForce16x9,
 	saveLastChannelId,
 	saveLastSourceIndex,
+	saveMp2SoftDecode,
 	saveSidebarVisible,
 } from "../lib/player-storage";
-import { cn } from "../lib/utils";
-import type { Channel, M3UMetadata, PlayMode } from "../types/player";
+import type { Channel, M3UMetadata } from "../types/player";
 
 function PlayerPage() {
 	const { locale, setLocale } = useLocale("player-locale");
@@ -37,8 +39,8 @@ function PlayerPage() {
 	const [metadata, setMetadata] = useState<M3UMetadata | null>(null);
 	const [epgData, setEpgData] = useState<EPGData>({});
 	const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
-	const [playMode, setPlayMode] = useState<PlayMode>("live");
-	const [playbackSegments, setPlaybackSegments] = useState<mpegts.MediaSegment[]>([]);
+	const [playMode, setPlayMode] = useState<"live" | "catchup">("live");
+	const [playbackSegments, setPlaybackSegments] = useState<PlayerSegment[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isRevealing, setIsRevealing] = useState(false);
@@ -48,6 +50,7 @@ function PlayerPage() {
 	const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 	const [catchupTailOffset, setCatchupTailOffset] = useState(() => getCatchupTailOffset());
 	const [force16x9, setForce16x9] = useState(() => getForce16x9());
+	const [mp2SoftDecode, setMp2SoftDecode] = useState(() => getMp2SoftDecode());
 	const pageContainerRef = useRef<HTMLDivElement>(null);
 
 	// Track stream start time - the absolute time position when current stream started
@@ -63,11 +66,6 @@ function PlayerPage() {
 
 	// Get the active source's URL and catchupSource
 	const activeSource = currentChannel?.sources[activeSourceIndex] ?? currentChannel?.sources[0];
-
-	// Reset currentVideoTime when streamStartTime changes (new stream starts from 0)
-	useEffect(() => {
-		setCurrentVideoTime(0);
-	}, []);
 
 	// Track fullscreen state
 	useEffect(() => {
@@ -149,12 +147,15 @@ function PlayerPage() {
 				setStreamStartTime(new Date(streamStartTime.getTime() + currentVideoTime * 1000));
 			}
 			setActiveSourceIndex(sourceIndex);
-			if (currentChannel) {
-				saveLastSourceIndex(currentChannel.id, sourceIndex);
-			}
 		},
-		[currentChannel, playMode, streamStartTime, currentVideoTime],
+		[playMode, streamStartTime, currentVideoTime],
 	);
+
+	const handlePlaybackStarted = useCallback(() => {
+		if (currentChannel) {
+			saveLastSourceIndex(currentChannel.id, activeSourceIndex);
+		}
+	}, [currentChannel, activeSourceIndex]);
 
 	const selectChannel = useCallback((channel: Channel) => {
 		setCurrentChannel(channel);
@@ -169,6 +170,10 @@ function PlayerPage() {
 			saveLastChannelId(currentChannel.id);
 		}
 	}, [currentChannel, playMode]);
+
+	const handleCurrentVideoTimeChange = useCallback((time: number) => {
+		startTransition(() => setCurrentVideoTime(time));
+	}, []);
 
 	const handleChannelNavigate = useCallback(
 		(target: "prev" | "next" | number) => {
@@ -318,6 +323,11 @@ function PlayerPage() {
 		saveForce16x9(enabled);
 	}, []);
 
+	const handleMp2SoftDecodeChange = useCallback((enabled: boolean) => {
+		setMp2SoftDecode(enabled);
+		saveMp2SoftDecode(enabled);
+	}, []);
+
 	const handleToggleSidebar = useCallback(() => {
 		setShowSidebar((prev) => {
 			const newState = !prev;
@@ -338,6 +348,8 @@ function PlayerPage() {
 					onCatchupTailOffsetChange={handleCatchupTailOffsetChange}
 					force16x9={force16x9}
 					onForce16x9Change={handleForce16x9Change}
+					mp2SoftDecode={mp2SoftDecode}
+					onMp2SoftDecodeChange={handleMp2SoftDecodeChange}
 				/>
 			</div>
 		);
@@ -346,10 +358,12 @@ function PlayerPage() {
 		theme,
 		catchupTailOffset,
 		force16x9,
+		mp2SoftDecode,
 		setLocale,
 		setTheme,
 		handleCatchupTailOffsetChange,
 		handleForce16x9Change,
+		handleMp2SoftDecodeChange,
 	]);
 
 	// Main UI content
@@ -364,27 +378,29 @@ function PlayerPage() {
 					<VideoPlayer
 						channel={currentChannel}
 						segments={playbackSegments}
-						liveSync={playMode === "live"}
+						playMode={playMode}
 						onError={handleVideoError}
 						locale={locale}
 						currentProgram={currentVideoProgram}
 						onSeek={handleVideoSeek}
 						streamStartTime={streamStartTime}
 						currentVideoTime={currentVideoTime}
-						onCurrentVideoTimeChange={setCurrentVideoTime}
+						onCurrentVideoTimeChange={handleCurrentVideoTimeChange}
 						onChannelNavigate={handleChannelNavigate}
 						showSidebar={showSidebar}
 						onToggleSidebar={handleToggleSidebar}
 						onFullscreenToggle={handleFullscreenToggle}
 						force16x9={force16x9}
+						mp2SoftDecode={mp2SoftDecode}
 						activeSourceIndex={activeSourceIndex}
 						onSourceChange={handleSourceChange}
+						onPlaybackStarted={handlePlaybackStarted}
 					/>
 				</div>
 
 				{/* Sidebar - Mobile: always visible (below video, hidden in fullscreen), Desktop: toggle-able side panel (visible in fullscreen) */}
 				<div
-					className={cn(
+					className={clsx(
 						"flex flex-col w-full md:w-80 md:border-l border-t md:border-t-0 border-border bg-card flex-1 md:flex-initial overflow-hidden",
 						(showSidebar || isMobile) && !(isFullscreen && isMobile) ? "" : "hidden",
 					)}
@@ -397,7 +413,7 @@ function PlayerPage() {
 								channelListNextScrollBehaviorRef.current = "instant";
 								setSidebarView("channels");
 							}}
-							className={cn(
+							className={clsx(
 								"flex-1 px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm font-medium",
 								sidebarView === "channels"
 									? "border-b-2 border-primary text-primary"
@@ -412,7 +428,7 @@ function PlayerPage() {
 								epgViewNextScrollBehaviorRef.current = "instant";
 								setSidebarView("epg");
 							}}
-							className={cn(
+							className={clsx(
 								"flex-1 px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm font-medium",
 								sidebarView === "epg"
 									? "border-b-2 border-primary text-primary"
@@ -477,7 +493,7 @@ function PlayerPage() {
 			{/* Loading overlay */}
 			{isLoading && (
 				<div
-					className={cn(
+					className={clsx(
 						"fixed inset-0 z-50 flex items-center justify-center bg-background",
 						isRevealing && "animate-[zoom-fade-out_0.5s_ease-out_forwards]",
 					)}

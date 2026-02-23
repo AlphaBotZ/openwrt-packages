@@ -1,7 +1,9 @@
+import { clsx } from "clsx";
 import { Search } from "lucide-react";
 import {
 	memo,
 	type RefObject,
+	startTransition,
 	useCallback,
 	useDeferredValue,
 	useEffect,
@@ -9,12 +11,10 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	useTransition,
 } from "react";
 import { usePlayerTranslation } from "../../hooks/use-player-translation";
 import { type EPGData, getCurrentProgram, getEPGChannelId } from "../../lib/epg-parser";
 import type { Locale } from "../../lib/locale";
-import { cn } from "../../lib/utils";
 import type { Channel } from "../../types/player";
 import { ChannelListItem } from "./channel-list-item";
 
@@ -47,7 +47,6 @@ function ChannelListComponent({
 
 	// Re-compute current programs every minute (low-priority update)
 	const [now, setNow] = useState(() => new Date());
-	const [, startTransition] = useTransition();
 	useEffect(() => {
 		const timer = setInterval(() => {
 			startTransition(() => setNow(new Date()));
@@ -129,26 +128,23 @@ function ChannelListComponent({
 			nextScrollBehaviorRef.current = "smooth";
 		}, 0);
 
-		if (nextScrollBehaviorRef.current === "skip") {
-			return;
-		}
+		if (!currentChannel) return;
+		if (nextScrollBehaviorRef.current === "skip") return;
 
-		if (currentChannelRef.current) {
-			currentChannelRef.current.scrollIntoView({
-				behavior: nextScrollBehaviorRef.current,
-				block: "center",
-			});
-		}
-	}, []);
+		currentChannelRef.current?.scrollIntoView({
+			behavior: nextScrollBehaviorRef.current,
+			block: "center",
+		});
+	}, [currentChannel]);
 
 	useLayoutEffect(() => {
-		if (currentChannelRef.current) {
-			currentChannelRef.current.scrollIntoView({
-				behavior: "instant",
-				block: "center",
-			});
-		}
-	}, []);
+		if (!filteredChannels.length) return;
+
+		currentChannelRef.current?.scrollIntoView({
+			behavior: "instant",
+			block: "center",
+		});
+	}, [filteredChannels]);
 
 	const handleChannelClick = useCallback(
 		(channel: Channel) => {
@@ -164,6 +160,7 @@ function ChannelListComponent({
 			if (e.key === "Enter" && filteredChannels.length > 0) {
 				onChannelSelect(filteredChannels[0]);
 				setSearchQuery("");
+				(document.activeElement as HTMLElement)?.blur();
 			} else if (e.key === "Escape") {
 				if (document.activeElement && document.activeElement !== document.body) {
 					(document.activeElement as HTMLElement).blur();
@@ -181,7 +178,7 @@ function ChannelListComponent({
 	return (
 		<div className="flex h-full flex-col bg-card">
 			{/* Search */}
-			<div className="px-2.5 pt-2 pb-0">
+			<div className="px-2 pt-2 pb-0">
 				<div className="flex items-center">
 					<div className="relative flex-1">
 						<input
@@ -190,7 +187,7 @@ function ChannelListComponent({
 							value={searchQuery}
 							onChange={handleSearchInputChange}
 							onKeyDown={handleSearchKeyDown}
-							className="w-full rounded-lg border border-border bg-background px-3 py-1 md:py-1.5 pl-8 md:pl-9 text-xs md:text-sm shadow-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+							className="w-full rounded-lg border border-border bg-background px-3 py-1 md:py-1.5 pl-8 md:pl-9 text-xs md:text-sm shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
 						/>
 						<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 md:h-4 md:w-4 -translate-y-1/2 text-muted-foreground" />
 					</div>
@@ -200,13 +197,13 @@ function ChannelListComponent({
 
 			{/* Groups */}
 			{groups && groups.length > 0 && (
-				<div className="border-y border-border bg-muted/30 px-2.5 py-2 mt-2">
+				<div className="border-y border-border bg-muted/30 px-2 py-2 mt-2">
 					<div className="flex flex-wrap gap-1.5">
 						<button
 							type="button"
 							onClick={() => setSelectedGroup(null)}
-							className={cn(
-								"rounded-lg px-2.5 md:px-2 py-0.5 md:py-1 text-xs font-medium transition-all",
+							className={clsx(
+								"rounded-lg px-2.5 md:px-2 py-0.5 md:py-1 text-xs font-medium transition",
 								selectedGroup === null
 									? "bg-primary text-primary-foreground shadow-sm"
 									: "bg-background text-muted-foreground cursor-pointer hover:bg-background/80 hover:text-foreground",
@@ -219,8 +216,8 @@ function ChannelListComponent({
 								type="button"
 								key={group}
 								onClick={() => setSelectedGroup(group)}
-								className={cn(
-									"rounded-lg px-2.5 md:px-2 py-0.5 md:py-1 text-xs font-medium transition-all",
+								className={clsx(
+									"rounded-lg px-2.5 md:px-2 py-0.5 md:py-1 text-xs font-medium transition",
 									selectedGroup === group
 										? "bg-primary text-primary-foreground shadow-sm"
 										: "cursor-pointer bg-background text-muted-foreground hover:bg-background/80 hover:text-foreground",
@@ -234,8 +231,8 @@ function ChannelListComponent({
 			)}
 
 			{/* Channel List */}
-			<div className="flex-1 overflow-y-auto px-2.5 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-				<div className="space-y-1.5">
+			<div className="flex-1 overflow-y-auto px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+				<div className="space-y-2">
 					{filteredChannels.map((channel, i) => (
 						<ChannelListItem
 							key={channel.id}
