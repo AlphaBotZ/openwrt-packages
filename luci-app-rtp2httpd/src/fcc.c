@@ -229,8 +229,9 @@ int fcc_handle_socket_event(stream_context_t *ctx, int64_t now) {
   int actualr =
       recvfrom(fcc->fcc_sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0,
                (struct sockaddr *)&peer_addr, &slen);
-  if (actualr < 0 && errno != EAGAIN) {
-    logger(LOG_ERROR, "FCC: Receive failed: %s", strerror(errno));
+  if (actualr < 0) {
+    if (errno != EAGAIN)
+      logger(LOG_ERROR, "FCC: Receive failed: %s", strerror(errno));
     buffer_ref_put(recv_buf);
     return 0;
   }
@@ -373,6 +374,8 @@ int fcc_initialize_and_request(stream_context_t *ctx) {
     sin.sin_addr.s_addr = INADDR_ANY;
     if (fcc_bind_socket_with_range(fcc->fcc_sock, &sin) != 0) {
       logger(LOG_ERROR, "FCC: Cannot bind socket within configured range");
+      close(fcc->fcc_sock);
+      fcc->fcc_sock = -1;
       return -1;
     }
 
@@ -427,7 +430,7 @@ int fcc_handle_server_response(stream_context_t *ctx, uint8_t *buf,
   if (fcc->type == FCC_TYPE_HUAWEI) {
     return fcc_huawei_handle_server_response(ctx, buf, buf_len);
   } else if (fcc->type == FCC_TYPE_TELECOM) {
-    return fcc_telecom_handle_server_response(ctx, buf);
+    return fcc_telecom_handle_server_response(ctx, buf, buf_len);
   }
 
   return 0;

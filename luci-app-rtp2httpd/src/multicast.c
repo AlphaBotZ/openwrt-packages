@@ -157,7 +157,7 @@ static int prepare_mcast_group_req(service_t *service, struct group_req *gr,
   }
 
   /* Prepare source-specific multicast structure if needed */
-  if (strcmp(service->msrc, "") != 0 && service->msrc != NULL) {
+  if (service->msrc != NULL && strcmp(service->msrc, "") != 0) {
     gsr->gsr_group = gr->gr_group;
     gsr->gsr_interface = gr->gr_interface;
     memcpy(&(gsr->gsr_source), service->msrc_addr->ai_addr,
@@ -185,7 +185,7 @@ static int mcast_group_op(int sock, service_t *service, int is_join,
   }
 
   /* Determine if this is source-specific multicast */
-  is_ssm = (strcmp(service->msrc, "") != 0 && service->msrc != NULL);
+  is_ssm = (service->msrc != NULL && strcmp(service->msrc, "") != 0);
 
   /* Select the appropriate operation */
   if (is_ssm) {
@@ -506,8 +506,9 @@ int mcast_session_handle_event(mcast_session_t *session, stream_context_t *ctx,
 
   /* Receive into buffer */
   int actualr = recv(session->sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0);
-  if (actualr < 0 && errno != EAGAIN) {
-    logger(LOG_DEBUG, "Multicast: Receive failed: %s", strerror(errno));
+  if (actualr < 0) {
+    if (errno != EAGAIN)
+      logger(LOG_DEBUG, "Multicast: Receive failed: %s", strerror(errno));
     buffer_ref_put(recv_buf);
     return 0;
   }
