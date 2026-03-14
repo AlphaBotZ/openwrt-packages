@@ -21,7 +21,7 @@ SYNC_LIST=(
     "https://github.com/fw876/helloworld.git . helloworld"
     "https://github.com/BCYDTZ/luci-app-UUGameAcc.git . luci-app-UUGameAcc"
     "https://github.com/kenzok8/small-package.git luci-app-ssr-plus luci-app-ssr-plus"
-    "https://github.com/douglarek/luci-app-homeproxy.git . luci-app-homeproxy"
+#    "https://github.com/douglarek/luci-app-homeproxy.git . luci-app-homeproxy"
     "https://github.com/kiddin9/luci-app-dnsfilter . luci-app-dnsfilter"
     "https://github.com/kiddin9/aria2 . aria2"
     "https://github.com/kiddin9/luci-app-baidupcs-web . luci-app-baidupcs-web"
