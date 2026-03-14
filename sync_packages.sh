@@ -15,7 +15,7 @@ SYNC_LIST=(
 #    "https://github.com/xiaorouji/openwrt-passwall2.git luci-app-passwall2 luci-app-passwall2"
     "https://github.com/vernesong/OpenClash.git luci-app-openclash luci-app-openclash"
     "https://github.com/sbwml/luci-app-openlist2.git . luci-app-openlist2"
-#    "https://github.com/sbwml/luci-app-mosdns.git . luci-app-mosdns"
+#    "https://github.com/sbwml/luci-app-mosdns.git . mosdns"
     "https://github.com/rufengsuixing/luci-app-adguardhome.git . luci-app-adguardhome"
     "https://github.com/linkease/istore.git . luci-app-store"
     "https://github.com/fw876/helloworld.git . helloworld"
