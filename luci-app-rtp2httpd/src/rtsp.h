@@ -8,6 +8,11 @@
 
 #define RTSP_DISABLE_TCP_TRANSPORT 0 /* To debug UDP transport, set to 1 */
 
+/* Timeout constants for RTSP state machine */
+#define RTSP_HANDSHAKE_TIMEOUT_SEC 3
+#define RTSP_TEARDOWN_TIMEOUT_SEC 3
+#define RTSP_FIRST_MEDIA_TIMEOUT_SEC 3
+
 /* ========== RTSP BUFFER SIZE CONFIGURATION ========== */
 
 /* RTCP buffer size - same as RTP buffer pool for consistency */
@@ -112,11 +117,14 @@ typedef struct {
   int epoll_fd;              /* Epoll file descriptor for socket registration */
   struct connection_s *conn; /* Connection pointer for fdmap registration */
   rtsp_state_t state;        /* Current RTSP state */
+  int64_t last_state_change_ms; /* Timestamp of last state change */
   int status_index; /* Index in status_shared->clients array for state updates
                      */
   uint32_t cseq;    /* RTSP sequence number */
   char session_id[RTSP_SESSION_ID_SIZE];   /* RTSP session ID */
   char server_url[RTSP_SERVER_URL_SIZE];   /* Full RTSP URL */
+  char setup_url[RTSP_SERVER_URL_SIZE];    /* Resolved SETUP URL (from
+                                              Content-Base + a=control) */
   char server_host[RTSP_SERVER_HOST_SIZE]; /* RTSP server hostname */
   int server_port;                         /* RTSP server port */
   char server_path[RTSP_SERVER_PATH_SIZE]; /* RTSP path with query string */
@@ -159,7 +167,8 @@ typedef struct {
   uint64_t packets_dropped; /* Packets dropped due to backpressure */
 
   /* Cleanup state */
-  int cleanup_done; /* Flag: cleanup has been completed */
+  int cleanup_done;          /* Flag: cleanup has been completed */
+  int first_media_received;  /* Flag: first media packet received in PLAYING */
 
   /* Non-blocking I/O state */
   char pending_request[RTSP_REQUEST_BUFFER_SIZE]; /* Request being sent */
@@ -182,6 +191,9 @@ typedef struct {
   int teardown_reconnect_done; /* Flag: Already attempted reconnect for TEARDOWN
                                 */
   rtsp_state_t state_before_teardown; /* State before TEARDOWN was initiated */
+
+  /* Per-service upstream interface override (resolved at init, non-owning) */
+  const char *upstream_ifname;
 
   /* Buffering */
   uint8_t response_buffer[RTSP_RESPONSE_BUFFER_SIZE]; /* Buffer for RTSP
@@ -235,9 +247,8 @@ int rtsp_connect(rtsp_session_t *session);
  * @return Return values:
  *   >0: Number of bytes forwarded to client
  *    0: No data forwarded (handshake in progress or no data available)
- *   -1: Error (socket error, protocol error, connection closed unexpectedly)
- *   -2: Graceful TEARDOWN completed (not an error, connection should close)
- *   -3: Duration query completed (r2h-duration request)
+ *   -1: Error or connection should close (including graceful TEARDOWN completion)
+ *   -2: Duration query completed (r2h-duration request)
  */
 int rtsp_handle_socket_event(rtsp_session_t *session, uint32_t events);
 

@@ -73,16 +73,16 @@ features:
 
 ### Fast Channel Change + Time-Shift Playback
 
-<video controls preload="metadata" src="/videos/fcc-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/ca1a332f-d6e7-4a1e-be88-92bef67758b3" />
 
 > [!TIP]
-> Fast channel change requires using IPTV-optimized players, such as [mytv-android](https://github.com/mytv-android/mytv-android) / [TiviMate](https://tivimate.com) / [Cloud Stream](https://apps.apple.com/us/app/cloud-stream-iptv-player/id1138002135) / built-in web player. The player in the video is TiviMate.
+> Fast channel change requires using IPTV-optimized players, such as [mytv-android](https://github.com/mytv-android/mytv-android) / [TiviMate](https://tivimate.com) / [Cloud Stream](https://apps.apple.com/us/app/cloud-stream-iptv-player/id1138002135) / built-in web player. The player in the video is mytv-android.
 >
 > Some common general-purpose players (such as PotPlayer / IINA) are not optimized for startup speed and will not show significant improvement.
 
 ### Built-in Web Player
 
-<video controls preload="metadata" src="/videos/player-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/b32f134d-87ac-46d0-90fe-50ffa410069a" />
 
 > [!TIP]
 > Requires M3U playlist configuration. Access via browser at `http://<server:port>/player` to open.
@@ -91,11 +91,11 @@ features:
 
 ### Real-time Status Monitoring
 
-![Real-time Status Monitoring](../images/status-page.png)
+![Real-time Status Monitoring](../images/web-dashboard-en.png)
 
 ### 25 Concurrent 1080p Multicast Streams
 
-<video controls preload="metadata" src="/videos/multistream-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/9d531ab6-6c35-4c50-802a-71f88b6b22c5" />
 
 > [!NOTE]
 > Single stream bitrate 8 Mbps. Total CPU usage only 25% of a single core (i3-N305), 4MB memory.

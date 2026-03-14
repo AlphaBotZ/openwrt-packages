@@ -17,20 +17,13 @@ Multicast UDP replay tool for testing rtp2httpd.
 ## Requirements
 
 - Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
 - Linux (uses `/proc/net/igmp` for IGMP monitoring)
-
-## Installation
-
-```bash
-cd tools
-uv sync
-source .venv/bin/activate
-```
 
 ## Usage
 
 ```bash
-python main.py <pcapng_file> [options]
+uv run python tools/main.py <pcapng_file> [options]
 ```
 
 ### Options
@@ -48,31 +41,31 @@ python main.py <pcapng_file> [options]
 
 ```bash
 # Basic usage - replay packets when IGMP join detected
-python main.py fixtures/fec_sample.pcapng
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng
 
 # Verbose output
-python main.py fixtures/fec_sample.pcapng -v
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng -v
 
 # Specify network interface
-python main.py fixtures/fec_sample.pcapng -i eth0
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng -i eth0
 
 # Simulate 1% packet loss
-python main.py fixtures/fec_sample.pcapng --loss 1.0
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --loss 1.0
 
 # Simulate 5% packet reordering
-python main.py fixtures/fec_sample.pcapng --reorder 5.0
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --reorder 5.0
 
 # Simulate both loss and reordering
-python main.py fixtures/fec_sample.pcapng --loss 0.5 --reorder 2.0 -v
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --loss 0.5 --reorder 2.0 -v
 
 # 2x playback speed
-python main.py fixtures/fec_sample.pcapng --speed 2.0 -v
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --speed 2.0 -v
 
 # 10x speed continuous stress test (no gaps between loops)
-python main.py fixtures/fec_sample.pcapng --speed 10 --continuous -v
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --speed 10 --continuous -v
 
 # Continuous replay with packet loss simulation
-python main.py fixtures/fec_sample.pcapng --continuous --loss 1.0 -v
+uv run python tools/main.py tools/fixtures/fec_sample.pcapng --continuous --loss 1.0 -v
 ```
 
 ## Testing with rtp2httpd
@@ -80,14 +73,13 @@ python main.py fixtures/fec_sample.pcapng --continuous --loss 1.0 -v
 1. Start the replay tool:
 
    ```bash
-   cd tools
-   python main.py fixtures/fec_sample.pcapng -v
+   uv run python tools/main.py tools/fixtures/fec_sample.pcapng -v
    ```
 
 2. Start rtp2httpd with the test M3U:
 
    ```bash
-   ./rtp2httpd -m tools/fixtures/sample.m3u
+   ./build/rtp2httpd -v 4 -C -M file://tools/fixtures/sample.m3u
    ```
 
 3. Request the stream (triggers IGMP join):
@@ -176,22 +168,22 @@ The `stress_test.py` script runs automated performance tests on streaming server
 
 ```bash
 # Test rtp2httpd (default)
-python stress_test.py
+uv run python tools/stress_test.py
 
 # Test msd_lite
-python stress_test.py --program msd_lite
+uv run python tools/stress_test.py --program msd_lite
 
 # Test udpxy
-python stress_test.py --program udpxy
+uv run python tools/stress_test.py --program udpxy
 
 # Test tvgate
-python stress_test.py --program tvgate
+uv run python tools/stress_test.py --program tvgate
 
 # Custom parameters
-python stress_test.py --duration 30 --clients 16 --speed 10
+uv run python tools/stress_test.py --duration 30 --clients 16 --speed 10
 
 # Verbose output (show subprocess output)
-python stress_test.py -v
+uv run python tools/stress_test.py -v
 ```
 
 ### Options

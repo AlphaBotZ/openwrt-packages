@@ -3,6 +3,8 @@
 #include "epg.h"
 #include "http.h"
 #include "m3u.h"
+#include "platform_compat.h"
+#include "poller.h"
 #include "service.h"
 #include "status.h"
 #include "utils.h"
@@ -16,7 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -371,11 +372,7 @@ int connection_set_tcp_nodelay(int fd) {
 }
 
 void connection_epoll_update_events(int epfd, int fd, uint32_t events) {
-  struct epoll_event ev;
-  memset(&ev, 0, sizeof(ev));
-  ev.events = events;
-  ev.data.fd = fd;
-  epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
+  poller_mod(epfd, fd, events);
 }
 
 connection_t *connection_create(int fd, int epfd,
@@ -387,6 +384,7 @@ connection_t *connection_create(int fd, int epfd,
   c->fd = fd;
   c->epfd = epfd;
   c->state = CONN_READ_REQ_LINE;
+  platform_set_nosigpipe(fd);
   c->service = NULL;
   c->streaming = 0;
   c->status_index = -1; /* Not registered yet */
@@ -417,12 +415,14 @@ connection_t *connection_create(int fd, int epfd,
   c->slow_candidate_since = 0;
 
   /* Enforce TCP user timeout so unacknowledged data fails quickly */
+#ifdef TCP_USER_TIMEOUT
   int tcp_user_timeout = CONNECTION_TCP_USER_TIMEOUT_MS;
   if (setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &tcp_user_timeout,
                  sizeof(tcp_user_timeout)) < 0) {
     logger(LOG_DEBUG, "connection_create: Failed to set TCP_USER_TIMEOUT: %s",
            strerror(errno));
   }
+#endif
 
   /* Enable SO_ZEROCOPY on socket if supported */
   if (config.zerocopy_on_send) {
@@ -545,7 +545,7 @@ int connection_queue_output_and_flush(connection_t *c, const uint8_t *data,
   if (result < 0)
     return result;
   connection_epoll_update_events(
-      c->epfd, c->fd, EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+      c->epfd, c->fd, POLLER_IN | POLLER_OUT | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
 
   if (c) {
     c->state = CONN_CLOSING;
@@ -560,78 +560,95 @@ connection_write_status_t connection_handle_write(connection_t *c) {
 
   if (!c->zc_queue.head) {
     connection_epoll_update_events(c->epfd, c->fd,
-                                   EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+                                   POLLER_IN | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
     connection_report_queue(c);
     if (c->state == CONN_CLOSING && !c->zc_queue.pending_head)
       return CONNECTION_WRITE_CLOSED;
     return CONNECTION_WRITE_IDLE;
   }
 
-  size_t bytes_sent = 0;
-  int ret = zerocopy_send(c->fd, &c->zc_queue, &bytes_sent);
+  /* Loop to drain all writable data for edge-triggered pollers where
+   * EPOLLOUT / EV_CLEAR fires only once when the socket becomes writable. */
+  for (;;) {
+    size_t bytes_sent = 0;
+    int ret = zerocopy_send(c->fd, &c->zc_queue, &bytes_sent);
 
-  if (ret < 0 && ret != -2) {
-    c->state = CONN_CLOSING;
-    connection_epoll_update_events(c->epfd, c->fd,
-                                   EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
-    connection_report_queue(c);
-    return CONNECTION_WRITE_CLOSED;
+    if (ret < 0 && ret != -2) {
+      c->state = CONN_CLOSING;
+      connection_epoll_update_events(c->epfd, c->fd,
+                                     POLLER_IN | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
+      connection_report_queue(c);
+      return CONNECTION_WRITE_CLOSED;
+    }
+
+    if (ret == -2) {
+      /* EAGAIN - socket send buffer full, wait for next writable event */
+      connection_report_queue(c);
+      return CONNECTION_WRITE_BLOCKED;
+    }
+
+    if (!c->zc_queue.head) {
+      /* All data sent - remove POLLER_OUT */
+      connection_epoll_update_events(c->epfd, c->fd,
+                                     POLLER_IN | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
+      connection_report_queue(c);
+      if (c->state == CONN_CLOSING && !c->zc_queue.pending_head)
+        return CONNECTION_WRITE_CLOSED;
+      return CONNECTION_WRITE_IDLE;
+    }
+
+    /* Guard against spinning if zerocopy_send sent 0 bytes without EAGAIN */
+    if (bytes_sent == 0)
+      break;
   }
 
-  if (ret == -2) {
-    connection_report_queue(c);
-    return CONNECTION_WRITE_BLOCKED;
-  }
-
-  if (c->zc_queue.head) {
-    connection_report_queue(c);
-    return CONNECTION_WRITE_PENDING;
-  }
-
-  connection_epoll_update_events(c->epfd, c->fd,
-                                 EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+  /* Queue still has data but we couldn't make progress */
   connection_report_queue(c);
-
-  if (c->state == CONN_CLOSING && !c->zc_queue.pending_head)
-    return CONNECTION_WRITE_CLOSED;
-
-  return CONNECTION_WRITE_IDLE;
+  return CONNECTION_WRITE_PENDING;
 }
 
 void connection_handle_read(connection_t *c) {
   if (!c)
     return;
 
-  /* Read into input buffer */
-  if (c->in_len < INBUF_SIZE) {
-    int r = read(c->fd, c->inbuf + c->in_len, INBUF_SIZE - c->in_len);
-    if (r > 0) {
-      c->in_len += r;
-    } else if (r == 0) {
-      c->state = CONN_CLOSING;
-      return;
-    } else if (errno == EAGAIN) {
-      return;
-    } else {
-      c->state = CONN_CLOSING;
-      return;
+  /* Read into input buffer.  Loop to drain all available data for
+   * edge-triggered pollers (epoll EPOLLET / kqueue EV_CLEAR) where the read event fires
+   * only once per data arrival.  This is important for POST requests
+   * with bodies larger than INBUF_SIZE. */
+  for (;;) {
+    if (c->in_len < INBUF_SIZE) {
+      int r = read(c->fd, c->inbuf + c->in_len, INBUF_SIZE - c->in_len);
+      if (r > 0) {
+        c->in_len += r;
+      } else if (r == 0) {
+        c->state = CONN_CLOSING;
+        return;
+      } else if (errno == EAGAIN) {
+        return; /* No more data available */
+      } else {
+        c->state = CONN_CLOSING;
+        return;
+      }
     }
-  }
 
-  /* Parse HTTP request using http.c parser */
-  if (c->state == CONN_READ_REQ_LINE || c->state == CONN_READ_HEADERS) {
-    int parse_result = http_parse_request(c->inbuf, &c->in_len, &c->http_req);
-    if (parse_result == 1) {
-      /* Request complete, route it */
-      c->state = CONN_ROUTE;
-      connection_route_and_start(c);
-      return;
-    } else if (parse_result < 0) {
-      /* Parse error */
-      c->state = CONN_CLOSING;
-      return;
+    /* Parse HTTP request using http.c parser */
+    if (c->state == CONN_READ_REQ_LINE || c->state == CONN_READ_HEADERS) {
+      int parse_result =
+          http_parse_request(c->inbuf, &c->in_len, &c->http_req);
+      if (parse_result == 1) {
+        /* Request complete, route it */
+        c->state = CONN_ROUTE;
+        connection_route_and_start(c);
+        return;
+      } else if (parse_result < 0) {
+        /* Parse error */
+        c->state = CONN_CLOSING;
+        return;
+      }
+      /* else parse_result == 0: need more data, keep reading */
+    } else {
+      return; /* Not in a request-reading state */
     }
-    /* else parse_result == 0: need more data, continue reading */
   }
 }
 
@@ -1130,7 +1147,7 @@ int connection_queue_zerocopy(connection_t *c, buffer_ref_t *buf_ref) {
    */
   if (zerocopy_should_flush(&c->zc_queue)) {
     connection_epoll_update_events(
-        c->epfd, c->fd, EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+        c->epfd, c->fd, POLLER_IN | POLLER_OUT | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
   }
 
   return 0;
@@ -1149,7 +1166,7 @@ int connection_queue_file(connection_t *c, int file_fd, off_t file_offset,
 
   /* Always flush immediately for file sends (no batching) */
   connection_epoll_update_events(
-      c->epfd, c->fd, EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
+      c->epfd, c->fd, POLLER_IN | POLLER_OUT | POLLER_RDHUP | POLLER_HUP | POLLER_ERR);
 
   /* Set connection to closing state after file transfer */
   c->state = CONN_CLOSING;

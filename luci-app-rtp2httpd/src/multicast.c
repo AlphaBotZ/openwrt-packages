@@ -2,6 +2,8 @@
 #include "buffer_pool.h"
 #include "connection.h"
 #include "fcc.h"
+#include "platform_compat.h"
+#include "poller.h"
 #include "rtp_fec.h"
 #include "service.h"
 #include "stream.h"
@@ -9,13 +11,13 @@
 #include "worker.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -75,9 +77,10 @@ static uint16_t calculate_checksum(const void *data, size_t len) {
   return ~sum;
 }
 
-static int create_igmp_raw_socket(void) {
+static int create_igmp_raw_socket(service_t *service) {
   int raw_sock;
-  const char *upstream_if = get_upstream_interface_for_multicast();
+  const char *upstream_if =
+      get_upstream_interface_for_multicast(service ? service->ifname : NULL);
 
   raw_sock = socket(AF_INET, SOCK_RAW, IPPROTO_IGMP);
   if (raw_sock < 0) {
@@ -114,8 +117,8 @@ static int create_igmp_raw_socket(void) {
     struct ip_mreqn mreq;
     memset(&mreq, 0, sizeof(mreq));
     mreq.imr_ifindex = if_nametoindex(upstream_if);
-    if (setsockopt(raw_sock, IPPROTO_IP, IP_MULTICAST_IF, &mreq, sizeof(mreq)) <
-        0) {
+    if (setsockopt(raw_sock, IPPROTO_IP, IP_MULTICAST_IF, &mreq,
+                   sizeof(mreq)) < 0) {
       logger(LOG_WARN, "Failed to set IP_MULTICAST_IF: %s", strerror(errno));
     }
   }
@@ -151,10 +154,41 @@ static int prepare_mcast_group_req(service_t *service, struct group_req *gr,
     return -1;
   }
 
-  upstream_if = get_upstream_interface_for_multicast();
+  upstream_if =
+      get_upstream_interface_for_multicast(service ? service->ifname : NULL);
   if (upstream_if && upstream_if[0] != '\0') {
     gr->gr_interface = if_nametoindex(upstream_if);
   }
+
+#if defined(__APPLE__) || defined(__FreeBSD__)
+  /* macOS/FreeBSD may require a valid interface index for multicast join
+   * (unlike Linux where 0 means "any"). Fall back to the first non-loopback
+   * interface. */
+  if (gr->gr_interface == 0 && service->addr->ai_family == AF_INET) {
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) == 0) {
+      for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+          continue;
+        if (ifa->ifa_flags & IFF_LOOPBACK)
+          continue;
+        if (!(ifa->ifa_flags & IFF_MULTICAST))
+          continue;
+        if (!(ifa->ifa_flags & IFF_UP))
+          continue;
+        unsigned int idx = if_nametoindex(ifa->ifa_name);
+        if (idx > 0) {
+          gr->gr_interface = idx;
+          logger(LOG_DEBUG,
+                 "Multicast: Auto-selected interface %s (index %u) for join",
+                 ifa->ifa_name, idx);
+          break;
+        }
+      }
+      freeifaddrs(ifaddr);
+    }
+  }
+#endif
 
   /* Prepare source-specific multicast structure if needed */
   if (service->msrc != NULL && strcmp(service->msrc, "") != 0) {
@@ -178,6 +212,11 @@ static int mcast_group_op(int sock, service_t *service, int is_join,
   int level, r;
   int op;
   int is_ssm; /* Source-Specific Multicast */
+
+  /* Zero-initialize to avoid garbage in sockaddr_storage padding
+   * (required on macOS where kernel may inspect full struct) */
+  memset(&gr, 0, sizeof(gr));
+  memset(&gsr, 0, sizeof(gsr));
 
   level = prepare_mcast_group_req(service, &gr, &gsr);
   if (level < 0) {
@@ -240,11 +279,23 @@ static int join_mcast_group(service_t *service, int is_fec) {
            strerror(errno));
   }
 
+#ifdef SO_REUSEPORT
+  /* SO_REUSEPORT allows multiple sockets to bind to the same multicast
+   * address:port. Required on macOS/BSD for reliable multicast receive. */
+  r = setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+  if (r) {
+    logger(LOG_DEBUG, "%s: SO_REUSEPORT failed: %s", log_prefix,
+           strerror(errno));
+  }
+#endif
+
   /* Determine which interface to use */
-  upstream_if = get_upstream_interface_for_multicast();
+  upstream_if =
+      get_upstream_interface_for_multicast(service ? service->ifname : NULL);
   bind_to_upstream_interface(sock, upstream_if);
 
   /* Prepare bind address with appropriate port */
+  memset(&bind_addr, 0, sizeof(bind_addr));
   memcpy(&bind_addr, service->addr->ai_addr, service->addr->ai_addrlen);
   bind_addr_len = service->addr->ai_addrlen;
 
@@ -316,7 +367,7 @@ static int rejoin_mcast_group(service_t *service) {
     nsrcs = 1;
   }
 
-  raw_sock = create_igmp_raw_socket();
+  raw_sock = create_igmp_raw_socket(service);
   if (raw_sock < 0) {
     return -1;
   }
@@ -448,18 +499,15 @@ int mcast_session_join(mcast_session_t *session, stream_context_t *ctx) {
     return -1;
   }
 
-  /* Register socket with epoll */
-  struct epoll_event ev;
-  ev.events = EPOLLIN;
-  ev.data.fd = sock;
-  if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, sock, &ev) < 0) {
-    logger(LOG_ERROR, "Multicast: Failed to add socket to epoll: %s",
+  /* Register socket with poller */
+  if (poller_add(ctx->epoll_fd, sock, POLLER_IN) < 0) {
+    logger(LOG_ERROR, "Multicast: Failed to add socket to poller: %s",
            strerror(errno));
     close(sock);
     return -1;
   }
   fdmap_set(sock, ctx->conn);
-  logger(LOG_DEBUG, "Multicast: Socket registered with epoll");
+  logger(LOG_DEBUG, "Multicast: Socket registered with poller");
 
   /* Reset timeout and rejoin timers */
   int64_t now = get_time_ms();
@@ -471,10 +519,8 @@ int mcast_session_join(mcast_session_t *session, stream_context_t *ctx) {
   if (ctx->fec.initialized && fec_is_enabled(&ctx->fec)) {
     int fec_sock = join_mcast_group(ctx->service, 1);
     if (fec_sock >= 0) {
-      ev.events = EPOLLIN;
-      ev.data.fd = fec_sock;
-      if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, fec_sock, &ev) < 0) {
-        logger(LOG_ERROR, "FEC: Failed to add socket to epoll: %s",
+      if (poller_add(ctx->epoll_fd, fec_sock, POLLER_IN) < 0) {
+        logger(LOG_ERROR, "FEC: Failed to add socket to poller: %s",
                strerror(errno));
         close(fec_sock);
       } else {
@@ -493,59 +539,70 @@ int mcast_session_handle_event(mcast_session_t *session, stream_context_t *ctx,
     return -1;
   }
 
-  /* Allocate buffer from pool */
-  buffer_ref_t *recv_buf = buffer_pool_alloc();
-  if (!recv_buf) {
-    logger(LOG_DEBUG, "Multicast: Buffer pool exhausted, dropping packet");
-    session->last_data_time = now;
-    /* Drain socket to prevent event loop spinning */
-    uint8_t dummy[BUFFER_POOL_BUFFER_SIZE];
-    recv(session->sock, dummy, sizeof(dummy), 0);
-    return 0;
-  }
-
-  /* Receive into buffer */
-  int actualr = recv(session->sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0);
-  if (actualr < 0) {
-    if (errno != EAGAIN)
-      logger(LOG_DEBUG, "Multicast: Receive failed: %s", strerror(errno));
-    buffer_ref_put(recv_buf);
-    return 0;
-  }
-
-  session->last_data_time = now;
-  recv_buf->data_size = (size_t)actualr;
-
-  int result = 0;
-
-  /* Handle based on FCC state (if FCC initialized) */
-  if (!ctx->fcc.initialized) {
-    /* Direct multicast without FCC - forward to client */
-    int processed_bytes = stream_process_rtp_payload(ctx, recv_buf);
-    if (processed_bytes > 0) {
-      ctx->total_bytes_sent += (uint64_t)processed_bytes;
+  /* Drain all available packets from the socket.  This is required for
+   * edge-triggered pollers (epoll EPOLLET / kqueue EV_CLEAR) where the read event fires
+   * only once per data arrival transition and won't re-trigger while
+   * unread data remains in the socket buffer. */
+  for (;;) {
+    /* Allocate buffer from pool */
+    buffer_ref_t *recv_buf = buffer_pool_alloc();
+    if (!recv_buf) {
+      logger(LOG_DEBUG, "Multicast: Buffer pool exhausted, dropping packet");
+      session->last_data_time = now;
+      /* Drain socket to prevent event loop spinning */
+      uint8_t dummy[BUFFER_POOL_BUFFER_SIZE];
+      recv(session->sock, dummy, sizeof(dummy), 0);
+      return 0;
     }
+
+    /* Receive into buffer */
+    int actualr =
+        recv(session->sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0);
+    if (actualr < 0) {
+      buffer_ref_put(recv_buf);
+      if (errno != EAGAIN)
+        logger(LOG_DEBUG, "Multicast: Receive failed: %s", strerror(errno));
+      break; /* No more data available */
+    }
+
+    session->last_data_time = now;
+    recv_buf->data_size = (size_t)actualr;
+
+    int result = 0;
+
+    /* Handle based on FCC state (if FCC initialized) */
+    if (!ctx->fcc.initialized) {
+      /* Direct multicast without FCC - forward to client */
+      int processed_bytes = stream_process_rtp_payload(ctx, recv_buf);
+      if (processed_bytes > 0) {
+        ctx->total_bytes_sent += (uint64_t)processed_bytes;
+      }
+      buffer_ref_put(recv_buf);
+      continue; /* Read next packet */
+    }
+
+    switch (ctx->fcc.state) {
+    case FCC_STATE_MCAST_ACTIVE:
+      result = fcc_handle_mcast_active(ctx, recv_buf);
+      break;
+
+    case FCC_STATE_MCAST_REQUESTED:
+      result = fcc_handle_mcast_transition(ctx, recv_buf);
+      break;
+
+    default:
+      logger(LOG_DEBUG, "Received multicast data in unexpected FCC state: %d",
+             ctx->fcc.state);
+      break;
+    }
+
     buffer_ref_put(recv_buf);
-    return 0;
+
+    if (result != 0)
+      return result;
   }
 
-  switch (ctx->fcc.state) {
-  case FCC_STATE_MCAST_ACTIVE:
-    result = fcc_handle_mcast_active(ctx, recv_buf);
-    break;
-
-  case FCC_STATE_MCAST_REQUESTED:
-    result = fcc_handle_mcast_transition(ctx, recv_buf);
-    break;
-
-  default:
-    logger(LOG_DEBUG, "Received multicast data in unexpected FCC state: %d",
-           ctx->fcc.state);
-    break;
-  }
-
-  buffer_ref_put(recv_buf);
-  return result;
+  return 0;
 }
 
 int mcast_session_tick(mcast_session_t *session, service_t *service,

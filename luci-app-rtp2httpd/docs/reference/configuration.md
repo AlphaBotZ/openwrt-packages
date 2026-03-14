@@ -30,6 +30,12 @@ rtp2httpd [选项]
 
 **优先级规则**：`upstream-interface-{fcc,rtsp,multicast,http}` > `upstream-interface` > 系统路由表
 
+> [!TIP]
+> 除了全局配置外，还可以在每个请求的 URL 中通过 `r2h-ifname` 和 `r2h-ifname-fcc` 参数指定上游接口，详见 [URL 格式说明](../guide/url-formats.md)。
+
+> [!TIP]
+> FreeBSD 系统下不支持指定除组播外的接口。
+
 ### 性能优化
 
 - `-b, --buffer-pool-max-size <数量>` - 缓冲池最大缓冲区数量 (默认: 16384)
@@ -143,6 +149,7 @@ upstream-interface = eth0
 # upstream-interface-fcc = eth1
 #
 # 优先级：upstream-interface-{multicast,fcc,rtsp,http} > upstream-interface > 系统路由表
+# 对于 FreeBSD 系统，仅支持设置组播接口
 
 # 外部 M3U 配置（支持 file://, http://, https://）
 # 注意：HTTP/HTTPS 需要安装 curl 或 uclient-fetch 或 wget 命令

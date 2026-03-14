@@ -4,6 +4,7 @@
 #include "fcc_huawei.h"
 #include "fcc_telecom.h"
 #include "multicast.h"
+#include "poller.h"
 #include "rtp.h"
 #include "status.h"
 #include "stream.h"
@@ -14,7 +15,6 @@
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -205,72 +205,76 @@ static bool is_rtcp_packet(const uint8_t *data, size_t len) {
 
 int fcc_handle_socket_event(stream_context_t *ctx, int64_t now) {
   fcc_session_t *fcc = &ctx->fcc;
-  struct sockaddr_in peer_addr;
-  socklen_t slen = sizeof(peer_addr);
 
-  /* Allocate a fresh buffer from pool for this receive operation */
-  buffer_ref_t *recv_buf = buffer_pool_alloc();
-  if (!recv_buf) {
-    /* Buffer pool exhausted - drop this packet */
-    logger(LOG_DEBUG, "FCC: Buffer pool exhausted, dropping packet");
-    fcc->last_data_time = now;
-    /* Drain the socket to prevent event loop spinning */
-    uint8_t dummy[BUFFER_POOL_BUFFER_SIZE];
-    ssize_t drained =
-        recvfrom(fcc->fcc_sock, dummy, sizeof(dummy), 0, NULL, NULL);
-    if (drained < 0 && errno != EAGAIN) {
-      logger(LOG_DEBUG, "FCC: Dummy recv failed while dropping packet: %s",
-             strerror(errno));
+  /* Drain all available packets for edge-triggered pollers (epoll EPOLLET / kqueue EV_CLEAR)
+   * where the read event fires only once per data arrival. */
+  for (;;) {
+    struct sockaddr_in peer_addr;
+    socklen_t slen = sizeof(peer_addr);
+
+    /* Allocate a fresh buffer from pool for this receive operation */
+    buffer_ref_t *recv_buf = buffer_pool_alloc();
+    if (!recv_buf) {
+      /* Buffer pool exhausted - drop this packet */
+      logger(LOG_DEBUG, "FCC: Buffer pool exhausted, dropping packet");
+      fcc->last_data_time = now;
+      /* Drain the socket to prevent event loop spinning */
+      uint8_t dummy[BUFFER_POOL_BUFFER_SIZE];
+      recvfrom(fcc->fcc_sock, dummy, sizeof(dummy), 0, NULL, NULL);
+      return 0;
     }
-    return 0;
-  }
 
-  /* Receive directly into zero-copy buffer (true zero-copy receive) */
-  int actualr =
-      recvfrom(fcc->fcc_sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0,
-               (struct sockaddr *)&peer_addr, &slen);
-  if (actualr < 0) {
-    if (errno != EAGAIN)
-      logger(LOG_ERROR, "FCC: Receive failed: %s", strerror(errno));
-    buffer_ref_put(recv_buf);
-    return 0;
-  }
-
-  /* Verify packet comes from expected FCC server */
-  if (fcc->verify_server_ip &&
-      peer_addr.sin_addr.s_addr != fcc->fcc_server->sin_addr.s_addr) {
-    buffer_ref_put(recv_buf);
-    return 0;
-  }
-
-  fcc->last_data_time = now;
-  recv_buf->data_size = (size_t)actualr;
-
-  /* Handle different types of FCC packets */
-  uint8_t *recv_data = (uint8_t *)recv_buf->data;
-  int result = 0;
-  if (is_rtcp_packet(recv_data, (size_t)actualr)) {
-    /* RTCP control message from FCC server */
-    int res = fcc_handle_server_response(ctx, recv_data, actualr);
-    if (res == 1) {
-      /* FCC redirect - retry request with new server */
-      if (fcc_initialize_and_request(ctx) < 0) {
-        logger(LOG_ERROR, "FCC redirect retry failed");
-        buffer_ref_put(recv_buf);
-        return -1;
-      }
+    /* Receive directly into zero-copy buffer (true zero-copy receive) */
+    int actualr =
+        recvfrom(fcc->fcc_sock, recv_buf->data, BUFFER_POOL_BUFFER_SIZE, 0,
+                 (struct sockaddr *)&peer_addr, &slen);
+    if (actualr < 0) {
       buffer_ref_put(recv_buf);
-      return 0; /* Redirect handled successfully */
+      if (errno != EAGAIN)
+        logger(LOG_ERROR, "FCC: Receive failed: %s", strerror(errno));
+      break; /* No more data available */
     }
-    result = res;
-  } else {
-    /* RTP media packet from FCC unicast stream */
-    result = fcc_handle_unicast_media(ctx, recv_buf);
+
+    /* Verify packet comes from expected FCC server */
+    if (fcc->verify_server_ip &&
+        peer_addr.sin_addr.s_addr != fcc->fcc_server->sin_addr.s_addr) {
+      buffer_ref_put(recv_buf);
+      continue; /* Skip and read next packet */
+    }
+
+    fcc->last_data_time = now;
+    recv_buf->data_size = (size_t)actualr;
+
+    /* Handle different types of FCC packets */
+    uint8_t *recv_data = (uint8_t *)recv_buf->data;
+    int result = 0;
+    if (is_rtcp_packet(recv_data, (size_t)actualr)) {
+      /* RTCP control message from FCC server */
+      int res = fcc_handle_server_response(ctx, recv_data, actualr);
+      if (res == 1) {
+        /* FCC redirect - retry request with new server */
+        if (fcc_initialize_and_request(ctx) < 0) {
+          logger(LOG_ERROR, "FCC redirect retry failed");
+          buffer_ref_put(recv_buf);
+          return -1;
+        }
+        buffer_ref_put(recv_buf);
+        return 0; /* Redirect handled successfully */
+      }
+      result = res;
+    } else {
+      /* RTP media packet from FCC unicast stream */
+      result = fcc_handle_unicast_media(ctx, recv_buf);
+    }
+
+    /* Release our reference to the buffer */
+    buffer_ref_put(recv_buf);
+
+    if (result != 0)
+      return result;
   }
 
-  /* Release our reference to the buffer */
-  buffer_ref_put(recv_buf);
-  return result;
+  return 0;
 }
 
 /*
@@ -351,7 +355,7 @@ int fcc_initialize_and_request(stream_context_t *ctx) {
       return -1;
     }
 
-    /* Set socket to non-blocking mode for epoll */
+    /* Set socket to non-blocking mode for poller */
     if (connection_set_nonblocking(fcc->fcc_sock) < 0) {
       logger(LOG_ERROR, "FCC: Failed to set socket non-blocking: %s",
              strerror(errno));
@@ -366,7 +370,8 @@ int fcc_initialize_and_request(stream_context_t *ctx) {
              config.udp_rcvbuf_size, strerror(errno));
     }
 
-    upstream_if = get_upstream_interface_for_fcc();
+    upstream_if =
+        get_upstream_interface_for_fcc(service->ifname, service->ifname_fcc);
     bind_to_upstream_interface(fcc->fcc_sock, upstream_if);
 
     /* Bind to configured or ephemeral port */
@@ -386,19 +391,16 @@ int fcc_initialize_and_request(stream_context_t *ctx) {
     fcc->fcc_server =
         (struct sockaddr_in *)(uintptr_t)service->fcc_addr->ai_addr;
 
-    /* Register socket with epoll immediately after creation */
-    struct epoll_event ev;
-    ev.events = EPOLLIN; /* Level-triggered mode for read events */
-    ev.data.fd = fcc->fcc_sock;
-    if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, fcc->fcc_sock, &ev) < 0) {
-      logger(LOG_ERROR, "FCC: Failed to add socket to epoll: %s",
+    /* Register socket with poller immediately after creation */
+    if (poller_add(ctx->epoll_fd, fcc->fcc_sock, POLLER_IN) < 0) {
+      logger(LOG_ERROR, "FCC: Failed to add socket to poller: %s",
              strerror(errno));
       close(fcc->fcc_sock);
       fcc->fcc_sock = -1;
       return -1;
     }
     fdmap_set(fcc->fcc_sock, ctx->conn);
-    logger(LOG_DEBUG, "FCC: Socket registered with epoll");
+    logger(LOG_DEBUG, "FCC: Socket registered with poller");
   }
 
   /* Send FCC request - different format for Huawei vs Telecom */

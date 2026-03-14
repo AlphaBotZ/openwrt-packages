@@ -2,6 +2,7 @@
 #include "configuration.h"
 #include "http.h"
 #include "m3u.h"
+#include "platform_compat.h"
 #include "rtp2httpd.h"
 #include "status.h"
 #include "supervisor.h"
@@ -14,7 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <time.h>
 
@@ -128,30 +128,23 @@ int logger(loglevel_t level, const char *format, ...) {
 
 void bind_to_upstream_interface(int sock, const char *ifname) {
   if (ifname && ifname[0] != '\0') {
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(struct ifreq));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
-
-    /* Get the latest interface index dynamically to handle interface restarts
-     * (e.g., PPPoE reconnection) */
-    unsigned int ifindex = if_nametoindex(ifr.ifr_name);
-    if (ifindex > 0) {
-      ifr.ifr_ifindex = (int)ifindex;
-    } else {
-      logger(LOG_WARN, "Failed to get interface index for %s: %s", ifr.ifr_name,
+    if (platform_bind_to_device(sock, ifname) < 0) {
+      logger(LOG_ERROR, "Failed to bind to upstream interface %s: %s", ifname,
              strerror(errno));
-    }
-
-    if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &ifr,
-                   sizeof(struct ifreq)) < 0) {
-      logger(LOG_ERROR, "Failed to bind to upstream interface %s: %s",
-             ifr.ifr_name, strerror(errno));
     }
   }
 }
 
-const char *get_upstream_interface_for_fcc(void) {
-  /* Priority: upstream_interface_fcc > upstream_interface */
+const char *get_upstream_interface_for_fcc(const char *override,
+                                           const char *override_fcc) {
+  /* Priority: override_fcc > override > upstream_interface_fcc >
+   * upstream_interface */
+  if (override_fcc && override_fcc[0] != '\0') {
+    return override_fcc;
+  }
+  if (override && override[0] != '\0') {
+    return override;
+  }
   if (config.upstream_interface_fcc[0] != '\0') {
     return config.upstream_interface_fcc;
   }
@@ -161,8 +154,11 @@ const char *get_upstream_interface_for_fcc(void) {
   return NULL;
 }
 
-const char *get_upstream_interface_for_rtsp(void) {
-  /* Priority: upstream_interface_rtsp > upstream_interface */
+const char *get_upstream_interface_for_rtsp(const char *override) {
+  /* Priority: override > upstream_interface_rtsp > upstream_interface */
+  if (override && override[0] != '\0') {
+    return override;
+  }
   if (config.upstream_interface_rtsp[0] != '\0') {
     return config.upstream_interface_rtsp;
   }
@@ -172,8 +168,11 @@ const char *get_upstream_interface_for_rtsp(void) {
   return NULL;
 }
 
-const char *get_upstream_interface_for_multicast(void) {
-  /* Priority: upstream_interface_multicast > upstream_interface */
+const char *get_upstream_interface_for_multicast(const char *override) {
+  /* Priority: override > upstream_interface_multicast > upstream_interface */
+  if (override && override[0] != '\0') {
+    return override;
+  }
   if (config.upstream_interface_multicast[0] != '\0') {
     return config.upstream_interface_multicast;
   }
@@ -183,8 +182,11 @@ const char *get_upstream_interface_for_multicast(void) {
   return NULL;
 }
 
-const char *get_upstream_interface_for_http(void) {
-  /* Priority: upstream_interface_http > upstream_interface */
+const char *get_upstream_interface_for_http(const char *override) {
+  /* Priority: override > upstream_interface_http > upstream_interface */
+  if (override && override[0] != '\0') {
+    return override;
+  }
   if (config.upstream_interface_http[0] != '\0') {
     return config.upstream_interface_http;
   }
@@ -198,8 +200,8 @@ const char *get_upstream_interface_for_http(void) {
  * Get local IP address for FCC packets
  * Priority: upstream_interface_fcc > upstream_interface > first non-loopback IP
  */
-uint32_t get_local_ip_for_fcc(void) {
-  const char *ifname = get_upstream_interface_for_fcc();
+uint32_t get_local_ip_for_fcc(const char *override, const char *override_fcc) {
+  const char *ifname = get_upstream_interface_for_fcc(override, override_fcc);
   struct ifaddrs *ifaddr, *ifa;
   uint32_t local_ip = 0;
 

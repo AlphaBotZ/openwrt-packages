@@ -18,7 +18,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -80,11 +79,14 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
     return mcast_session_handle_event(&ctx->mcast, ctx, now);
   }
 
-  /* Process FEC socket events */
+  /* Process FEC socket events - drain all available packets for
+   * edge-triggered pollers (epoll EPOLLET / kqueue EV_CLEAR). */
   if (ctx->fec.initialized && ctx->fec.sock >= 0 && fd == ctx->fec.sock) {
-    uint8_t fec_buf[BUFFER_POOL_BUFFER_SIZE];
-    int fec_len = recv(ctx->fec.sock, fec_buf, sizeof(fec_buf), 0);
-    if (fec_len > 0) {
+    for (;;) {
+      uint8_t fec_buf[BUFFER_POOL_BUFFER_SIZE];
+      int fec_len = recv(ctx->fec.sock, fec_buf, sizeof(fec_buf), 0);
+      if (fec_len <= 0)
+        break;
       fec_process_packet(&ctx->fec, fec_buf, fec_len);
     }
     return 0;
@@ -95,24 +97,16 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
     /* Handle RTSP socket events (handshake and RTP data in PLAYING state) */
     int result = rtsp_handle_socket_event(&ctx->rtsp, events);
     if (result < 0) {
-      /* -2 indicates graceful TEARDOWN completion, not an error */
       if (result == -2) {
-        logger(LOG_DEBUG, "RTSP: Graceful TEARDOWN completed");
-        return -1; /* Signal connection should be closed */
-      }
-      if (result == -3)
-      {
         logger(LOG_DEBUG, "RTSP: found duration: %0.3f", ctx->rtsp.r2h_duration_value);
-        return -3;
+        return -2;
       }
-      /* Real error */
-      logger(LOG_ERROR, "RTSP: Socket event handling failed");
       return -1;
     }
     if (result > 0) {
       ctx->total_bytes_sent += (uint64_t)result;
     }
-    return 0; /* Success - processed data, continue with other events */
+    return 0;
   }
 
   /* Process RTSP RTP socket events (UDP mode) */
@@ -127,12 +121,14 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
     return 0; /* Success - processed data, continue with other events */
   }
 
-  /* Handle UDP RTCP socket (for future RTCP processing) */
+  /* Handle UDP RTCP socket - drain all available packets for
+   * edge-triggered pollers (epoll EPOLLET / kqueue EV_CLEAR). */
   if (ctx->rtsp.initialized && ctx->rtsp.rtcp_socket >= 0 && fd == ctx->rtsp.rtcp_socket) {
     /* RTCP data processing could be added here in the future */
-    /* For now, just consume the data to prevent buffer overflow */
+    /* For now, just consume all data to prevent buffer overflow */
     uint8_t rtcp_buffer[RTCP_BUFFER_SIZE];
-    recv(ctx->rtsp.rtcp_socket, rtcp_buffer, sizeof(rtcp_buffer), 0);
+    while (recv(ctx->rtsp.rtcp_socket, rtcp_buffer, sizeof(rtcp_buffer), 0) > 0)
+      ;
     return 0;
   }
 
@@ -174,6 +170,8 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
     ctx->http_proxy.epoll_fd = ctx->epoll_fd;
     ctx->http_proxy.conn = conn;
     ctx->http_proxy.status_index = status_index;
+    ctx->http_proxy.upstream_ifname =
+        get_upstream_interface_for_http(service->ifname);
 
     if (!service->http_url) {
       logger(LOG_ERROR, "HTTP URL not found in service configuration");
@@ -268,6 +266,8 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
       ctx->rtsp.status_index = status_index;
       ctx->rtsp.epoll_fd = ctx->epoll_fd;
       ctx->rtsp.conn = conn;
+      ctx->rtsp.upstream_ifname =
+          get_upstream_interface_for_rtsp(service->ifname);
       if (!service->rtsp_url) {
         logger(LOG_ERROR, "RTSP URL not found in service configuration");
         return -1;
@@ -337,8 +337,13 @@ int stream_tick(stream_context_t *ctx, int64_t now) {
   /* FCC session tick (timeout checks) */
   fcc_session_tick(ctx, now);
 
-  /* RTSP session tick (STUN timeout, keepalive) */
-  rtsp_session_tick(&ctx->rtsp, now);
+  /* RTSP session tick (STUN timeout, keepalive, state timeout) */
+  if (rtsp_session_tick(&ctx->rtsp, now) < 0)
+    return -1;
+
+  /* HTTP proxy session tick (state timeout) */
+  if (http_proxy_session_tick(&ctx->http_proxy, now) < 0)
+    return -1;
 
   /* Check snapshot timeout (5 seconds) */
   if (ctx->snapshot.initialized) {

@@ -73,16 +73,16 @@ features:
 
 ### 快速换台 + 时移回看
 
-<video controls preload="metadata" src="/videos/fcc-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/ca1a332f-d6e7-4a1e-be88-92bef67758b3" />
 
 > [!TIP]
-> 快速换台需要搭配使用针对 IPTV 优化的播放器，例如 [mytv-android](https://github.com/mytv-android/mytv-android) / [TiviMate](https://tivimate.com) / [Cloud Stream](https://apps.apple.com/us/app/cloud-stream-iptv-player/id1138002135) / 内置 Web 播放器等。视频中的播放器是 TiviMate。
+> 快速换台需要搭配使用针对 IPTV 优化的播放器，例如 [mytv-android](https://github.com/mytv-android/mytv-android) / [TiviMate](https://tivimate.com) / [Cloud Stream](https://apps.apple.com/us/app/cloud-stream-iptv-player/id1138002135) / 内置 Web 播放器等。视频中的播放器是 mytv-android。
 >
 > 一些常见的万能播放器（如 PotPlayer / IINA）没有针对起播速度做优化，不会有明显效果。
 
 ### 内置 Web 播放器
 
-<video controls preload="metadata" src="/videos/player-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/b32f134d-87ac-46d0-90fe-50ffa410069a" />
 
 > [!TIP]
 > 需要配置 M3U 播放列表后使用，通过浏览器访问 `http://<server:port>/player` 即可打开。
@@ -91,11 +91,11 @@ features:
 
 ### 实时状态监控
 
-![实时状态监控](./images/status-page.png)
+![实时状态监控](./images/web-dashboard.png)
 
 ### 25 条 1080p 组播流同时播放
 
-<video controls preload="metadata" src="/videos/multistream-demo.mp4#t=0.001" />
+<video controls muted src="https://github.com/user-attachments/assets/9d531ab6-6c35-4c50-802a-71f88b6b22c5" />
 
 > [!NOTE]
 > 单流码率 8 Mbps。总仅占用 25% CPU 单核 (i3-N305)，消耗 4MB 内存。
