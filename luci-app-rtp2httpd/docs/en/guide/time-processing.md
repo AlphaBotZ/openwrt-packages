@@ -96,6 +96,8 @@ http://192.168.1.1:5140/rtsp/iptv.example.com:554/channel1?playseek=202401011200
 
 Used to specify starting playback of an RTSP stream from a specific time point, implementing resume functionality. This parameter value will be sent as an NPT (Normal Play Time) format time point to the RTSP server in the RTSP PLAY request via the `Range: npt=<time-point>-` header. This parameter is only valid for RTSP proxy.
 
+To improve compatibility with RTSP servers of most ISPs in China, if the same RTSP request also contains a seek parameter (including `playseek`, `tvdr`, and custom `r2h-seek-name`) whose start time is less than 1 hour from the current time, `r2h-start` will be ignored and the seek start time will be used to generate a `Range: clock=` header instead.
+
 #### Example
 
 ```url
@@ -124,9 +126,24 @@ playseek=1704096000-1704099600
 playseek=20240101120000GMT-20240101130000GMT
 ```
 
-### 4. ISO 8601 Format (Contains T separator)
+### 4. Compact ISO 8601 Format (yyyyMMddTHHmmss)
 
-Supports multiple ISO 8601 variants:
+Compact ISO 8601 format without hyphen and colon separators:
+
+```
+# Without timezone (uses User-Agent timezone)
+playseek=20240101T120000-20240101T130000
+
+# With Z suffix (UTC timezone)
+playseek=20240101T120000Z-20240101T130000Z
+
+# With timezone offset
+playseek=20240101T200000+08:00-20240101T210000+08:00
+```
+
+### 5. ISO 8601 Format (yyyy-MM-ddTHH:mm:ss)
+
+Full ISO 8601 format, supporting multiple variants:
 
 ```
 # Without timezone (uses User-Agent timezone)
@@ -142,14 +159,24 @@ playseek=2024-01-01T12:00:00+08:00-2024-01-01T13:00:00+08:00
 playseek=2024-01-01T12:00:00.123-2024-01-01T13:00:00.456
 ```
 
-**Characteristics**:
+**Common characteristics of ISO 8601 formats** (applies to formats 4 and 5):
 
 - If timezone information is included (Z or ±HH:MM), uses that timezone and ignores User-Agent timezone
 - If no timezone information is included, uses the timezone from User-Agent for conversion
 - Output format preserves original timezone suffix (Z, ±HH:MM, or no suffix)
-- Supports millisecond precision (.sss)
+- Full format (format 5) supports millisecond precision (.sss)
 
 ## Timezone Handling Mechanism
+
+### RTSP Recent Seek Handling
+
+For the RTSP proxy, in addition to passing seek parameters to the upstream as URL query parameters (same as HTTP proxy), a "near-realtime" branch is also supported. The seek parameters here include `playseek`, `tvdr`, and any custom parameter specified via `r2h-seek-name`:
+
+- When the seek start time satisfies "current time - start time < 3600 seconds", rtp2httpd will not pass the seek parameter through to the upstream RTSP URL
+- This branch only uses the seek start time; the end time is ignored
+- The RTSP `PLAY` request will send `Range: clock=<yyyyMMddTHHmmssZ>-`
+- When the seek start time is exactly 1 hour ago, this branch is not triggered and the parameter is passed through as a normal URL parameter
+- If the seek value cannot be parsed, the original pass-through behavior is preserved
 
 ### Timezone Recognition
 
@@ -168,7 +195,7 @@ If there is no timezone information in the User-Agent, no timezone conversion is
 > [!NOTE]
 > rtp2httpd processes time parameters in the following steps:
 >
-> 1. **Parse time format** — Identify which format the parameter value belongs to: Unix timestamp (≤10 digits), `yyyyMMddHHmmss` (14 digits), `yyyyMMddHHmmssGMT` (14 digits + GMT suffix), ISO 8601 (contains `T` separator)
+> 1. **Parse time format** — Identify which format the parameter value belongs to: Unix timestamp (≤10 digits), `yyyyMMddHHmmss` (14 digits), `yyyyMMddHHmmssGMT` (14 digits + GMT suffix), compact ISO 8601 (`yyyyMMddTHHmmss`), full ISO 8601 (`yyyy-MM-ddTHH:mm:ss`)
 > 2. **Parse User-Agent timezone** — Search for the `TZ/` marker in the User-Agent, extract UTC offset (seconds). If no timezone information, defaults to 0 (UTC)
 > 3. **Timezone conversion** — Unix timestamp and ISO 8601 with timezone formats skip conversion; `yyyyMMddHHmmss` and ISO 8601 without timezone formats apply User-Agent timezone conversion
 > 4. **Apply `r2h-seek-offset`** — If this parameter is specified, apply additional second offset (can be positive or negative) to all formats

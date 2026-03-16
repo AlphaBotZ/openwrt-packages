@@ -28,11 +28,13 @@ class _UpstreamHandler(BaseHTTPRequestHandler):
     def _dispatch(self, head: bool = False) -> None:
         # Record the request details
         hdrs = {k: v for k, v in self.headers.items()}
-        self.requests_log.append({
-            "method": self.command,
-            "path": self.path,  # full path including query string
-            "headers": hdrs,
-        })
+        self.requests_log.append(
+            {
+                "method": self.command,
+                "path": self.path,  # full path including query string
+                "headers": hdrs,
+            }
+        )
 
         path = self.path.split("?")[0]
         route = self.routes.get(path)
@@ -57,7 +59,7 @@ class _UpstreamHandler(BaseHTTPRequestHandler):
         if not head:
             self.wfile.write(body)
 
-    def log_message(self, fmt, *args) -> None:  # noqa: ARG002
+    def log_message(self, format, *args) -> None:  # noqa: ARG002, A002
         pass  # silence
 
 
@@ -79,7 +81,8 @@ class MockHTTPUpstream:
         )
         self._server = HTTPServer(("127.0.0.1", self.port), handler)
         self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True,
+            target=self._server.serve_forever,
+            daemon=True,
         )
         self._thread.start()
 
@@ -119,12 +122,13 @@ class MockHTTPUpstreamSilent:
             self._thread.join(timeout=3)
 
     def _accept(self) -> None:
+        assert self._server_sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._server_sock.accept()
                 t = threading.Thread(target=self._handle, args=(conn,), daemon=True)
                 t.start()
-            except (socket.timeout, OSError):
+            except socket.timeout, OSError:
                 continue
 
     def _handle(self, conn: socket.socket) -> None:

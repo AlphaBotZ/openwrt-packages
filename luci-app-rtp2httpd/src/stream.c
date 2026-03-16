@@ -8,9 +8,7 @@
 #include "service.h"
 #include "snapshot.h"
 #include "status.h"
-#include "timezone.h"
 #include "utils.h"
-#include "worker.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
@@ -33,8 +31,7 @@ int stream_process_rtp_payload(stream_context_t *ctx, buffer_ref_t *buf_ref) {
   int payload_len;
   uint16_t seqn;
 
-  int pkt_type =
-      rtp_get_payload(data_ptr, buf_ref->data_size, &payload, &payload_len, &seqn);
+  int pkt_type = rtp_get_payload(data_ptr, buf_ref->data_size, &payload, &payload_len, &seqn);
 
   if (pkt_type < 0)
     return 0; /* Malformed packet */
@@ -50,8 +47,7 @@ int stream_process_rtp_payload(stream_context_t *ctx, buffer_ref_t *buf_ref) {
   if (pkt_type == 0) {
     /* Non-RTP packet - pass through directly (no reordering needed) */
     if (ctx->snapshot.initialized) {
-      return snapshot_process_packet(&ctx->snapshot, buf_ref->data_size,
-                                     data_ptr, ctx->conn);
+      return snapshot_process_packet(&ctx->snapshot, buf_ref->data_size, data_ptr, ctx->conn);
     }
     return rtp_queue_buf_direct(ctx->conn, buf_ref);
   }
@@ -63,12 +59,11 @@ int stream_process_rtp_payload(stream_context_t *ctx, buffer_ref_t *buf_ref) {
   buf_ref->data_size = (size_t)payload_len;
 
   /* Process through reorder buffer (also serves as FEC packet store) */
-  return rtp_reorder_insert(&ctx->reorder, buf_ref, seqn, ctx->conn,
-                            ctx->snapshot.initialized, ctx->fec.initialized ? &ctx->fec : NULL);
+  return rtp_reorder_insert(&ctx->reorder, buf_ref, seqn, ctx->conn, ctx->snapshot.initialized,
+                            ctx->fec.initialized ? &ctx->fec : NULL);
 }
 
-int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
-                           int64_t now) {
+int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events, int64_t now) {
   /* Process FCC socket events */
   if (ctx->fcc.initialized && ctx->fcc.fcc_sock >= 0 && fd == ctx->fcc.fcc_sock) {
     return fcc_handle_socket_event(ctx, now);
@@ -149,8 +144,7 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
 }
 
 /* Initialize context for unified worker epoll (non-blocking, no own loop) */
-int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
-                                   service_t *service, int epoll_fd,
+int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn, service_t *service, int epoll_fd,
                                    int status_index, int is_snapshot) {
   if (!ctx || !conn || !service)
     return -1;
@@ -165,46 +159,32 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
 
   /* Initialize media path depending on service type */
   if (service->service_type == SERVICE_HTTP) {
+    seek_parse_result_t seek_parse_result;
+
     /* Snapshot mode is not supported for HTTP proxy - ignore is_snapshot */
     http_proxy_session_init(&ctx->http_proxy);
     ctx->http_proxy.epoll_fd = ctx->epoll_fd;
     ctx->http_proxy.conn = conn;
     ctx->http_proxy.status_index = status_index;
-    ctx->http_proxy.upstream_ifname =
-        get_upstream_interface_for_http(service->ifname);
+    ctx->http_proxy.upstream_ifname = get_upstream_interface_for_http(service->ifname);
 
     if (!service->http_url) {
       logger(LOG_ERROR, "HTTP URL not found in service configuration");
       return -1;
     }
 
-    /* Build proxy URL, applying timezone conversion to seek params if present
-     */
+    if (service_parse_seek_value(service->seek_param_value, service->seek_offset_seconds, service->user_agent,
+                                 &seek_parse_result) != 0) {
+      logger(LOG_ERROR, "HTTP Proxy: Failed to parse seek parameters");
+      return -1;
+    }
+
+    /* Build proxy URL with template substitution or seek param append */
     char proxy_url[2048];
-    strncpy(proxy_url, service->http_url, sizeof(proxy_url) - 1);
-    proxy_url[sizeof(proxy_url) - 1] = '\0';
-
-    if (service->seek_param_name && service->seek_param_value) {
-      int tz_offset = 0;
-      if (service->user_agent)
-        timezone_parse_from_user_agent(service->user_agent, &tz_offset);
-
-      char converted[256];
-      if (service_convert_seek_value(service->seek_param_value, tz_offset,
-                                     service->seek_offset_seconds, converted,
-                                     sizeof(converted)) == 0) {
-        size_t current_len = strlen(proxy_url);
-        char *query_marker = strchr(proxy_url, '?');
-        size_t remain = sizeof(proxy_url) - current_len;
-        int written =
-            snprintf(proxy_url + current_len, remain, "%c%s=%s",
-                     query_marker ? '&' : '?', service->seek_param_name,
-                     converted);
-        if (written < 0 || (size_t)written >= remain) {
-          proxy_url[current_len] = '\0'; /* Restore on truncation */
-          logger(LOG_WARN, "HTTP Proxy: URL too long to append seek parameter");
-        }
-      }
+    if (service_resolve_upstream_url(service->http_url, service->seek_param_name, &seek_parse_result, proxy_url,
+                                     sizeof(proxy_url)) < 0) {
+      logger(LOG_ERROR, "HTTP Proxy: Failed to resolve upstream URL");
+      return -1;
     }
 
     /* Parse URL */
@@ -217,18 +197,15 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
     http_proxy_set_method(&ctx->http_proxy, conn->http_req.method);
 
     /* Set raw headers for full passthrough */
-    http_proxy_set_raw_headers(&ctx->http_proxy, conn->http_req.raw_headers,
-                               conn->http_req.raw_headers_len);
+    http_proxy_set_raw_headers(&ctx->http_proxy, conn->http_req.raw_headers, conn->http_req.raw_headers_len);
 
     /* Set request body for passthrough */
     if (conn->http_req.body && conn->http_req.body_len > 0) {
-      http_proxy_set_request_body(&ctx->http_proxy, conn->http_req.body,
-                                  conn->http_req.body_len);
+      http_proxy_set_request_body(&ctx->http_proxy, conn->http_req.body, conn->http_req.body_len);
     }
 
     /* Set request headers for base URL construction during content rewriting */
-    http_proxy_set_request_headers(&ctx->http_proxy, conn->http_req.hostname,
-                                   conn->http_req.x_forwarded_host,
+    http_proxy_set_request_headers(&ctx->http_proxy, conn->http_req.hostname, conn->http_req.x_forwarded_host,
                                    conn->http_req.x_forwarded_proto);
 
     /* Initiate connection */
@@ -262,22 +239,40 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
 
     if (service->service_type == SERVICE_RTSP) {
       /* Initialize RTSP session */
+      seek_parse_result_t seek_parse_result;
+      const char *resolved_seek_param_name = service->seek_param_name;
+
       rtsp_session_init(&ctx->rtsp);
       ctx->rtsp.status_index = status_index;
       ctx->rtsp.epoll_fd = ctx->epoll_fd;
       ctx->rtsp.conn = conn;
-      ctx->rtsp.upstream_ifname =
-          get_upstream_interface_for_rtsp(service->ifname);
+      ctx->rtsp.upstream_ifname = get_upstream_interface_for_rtsp(service->ifname);
       if (!service->rtsp_url) {
         logger(LOG_ERROR, "RTSP URL not found in service configuration");
         return -1;
       }
 
-      /* Parse URL and initiate connection */
-      if (rtsp_parse_server_url(
-              &ctx->rtsp, service->rtsp_url, service->seek_param_name,
-              service->seek_param_value, service->seek_offset_seconds,
-              service->user_agent, NULL, NULL) < 0) {
+      if (service_parse_seek_value(service->seek_param_value, service->seek_offset_seconds, service->user_agent,
+                                   &seek_parse_result) != 0) {
+        logger(LOG_ERROR, "RTSP: Failed to parse seek parameters");
+        return -1;
+      }
+
+      if (service_format_recent_seek_range(&seek_parse_result, ctx->rtsp.playseek_range_start,
+                                           sizeof(ctx->rtsp.playseek_range_start)) > 0) {
+        ctx->rtsp.use_playseek_range = 1;
+        resolved_seek_param_name = NULL;
+      }
+
+      /* Resolve URL templates / seek params, then parse */
+      char resolved_rtsp_url[2048];
+      if (service_resolve_upstream_url(service->rtsp_url, resolved_seek_param_name,
+                                       ctx->rtsp.use_playseek_range ? NULL : &seek_parse_result, resolved_rtsp_url,
+                                       sizeof(resolved_rtsp_url)) < 0) {
+        logger(LOG_ERROR, "RTSP: Failed to resolve upstream URL");
+        return -1;
+      }
+      if (rtsp_parse_server_url(&ctx->rtsp, resolved_rtsp_url, NULL, NULL) < 0) {
         logger(LOG_ERROR, "RTSP: Failed to parse URL");
         return -1;
       }
@@ -289,8 +284,7 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
 
       /* Connection initiated - handshake will proceed asynchronously via event
        * loop */
-      logger(LOG_DEBUG, "RTSP: Async connection initiated, state=%d",
-             ctx->rtsp.state);
+      logger(LOG_DEBUG, "RTSP: Async connection initiated, state=%d", ctx->rtsp.state);
     } else {
       /* Multicast-based services (FCC or direct multicast) */
       mcast_session_init(&ctx->mcast);
@@ -303,8 +297,7 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn,
         /* Use FCC type from service (already determined during parsing) */
         ctx->fcc.type = service->fcc_type;
         logger(LOG_INFO, "FCC: Using %s FCC protocol",
-               ctx->fcc.type == FCC_TYPE_HUAWEI ? "Huawei"
-                                                : "Telecom/ZTE/Fiberhome");
+               ctx->fcc.type == FCC_TYPE_HUAWEI ? "Huawei" : "Telecom/ZTE/Fiberhome");
 
         if (fcc_initialize_and_request(ctx) < 0) {
           logger(LOG_ERROR, "FCC initialization failed");
@@ -350,8 +343,7 @@ int stream_tick(stream_context_t *ctx, int64_t now) {
     int64_t snapshot_elapsed = now - ctx->snapshot.start_time;
     if (snapshot_elapsed > SNAPSHOT_TIMEOUT_SEC * 1000) /* 5 seconds */
     {
-      logger(LOG_WARN, "Snapshot: Timeout waiting for I-frame (%lld ms)",
-             (long long)snapshot_elapsed);
+      logger(LOG_WARN, "Snapshot: Timeout waiting for I-frame (%lld ms)", (long long)snapshot_elapsed);
       snapshot_fallback_to_streaming(&ctx->snapshot, ctx->conn);
     }
   }
@@ -369,8 +361,7 @@ int stream_tick(stream_context_t *ctx, int64_t now) {
     }
 
     /* Update bytes and bandwidth in status */
-    status_update_client_bytes(ctx->status_index, ctx->total_bytes_sent,
-                               current_bandwidth);
+    status_update_client_bytes(ctx->status_index, ctx->total_bytes_sent, current_bandwidth);
 
     /* Save current bytes for next calculation */
     ctx->last_bytes_sent = ctx->total_bytes_sent;
@@ -407,8 +398,7 @@ int stream_context_cleanup(stream_context_t *ctx) {
 
   if (rtsp_async) {
     /* RTSP async TEARDOWN initiated - defer final cleanup */
-    logger(LOG_DEBUG,
-           "Stream: RTSP async TEARDOWN initiated, deferring final cleanup");
+    logger(LOG_DEBUG, "Stream: RTSP async TEARDOWN initiated, deferring final cleanup");
     /* Do NOT clear ctx->service - still needed for RTSP */
     return 1; /* Indicate async cleanup in progress */
   }

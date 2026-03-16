@@ -96,6 +96,8 @@ http://192.168.1.1:5140/rtsp/iptv.example.com:554/channel1?playseek=202401011200
 
 用于指定从特定时间点开始播放 RTSP 流，实现续播功能。此参数值会作为 NPT（Normal Play Time）格式的时间点，在 RTSP PLAY 请求中通过 `Range: npt=<时间点>-` 头发送给 RTSP 服务器。此参数仅对 RTSP 代理有效。
 
+为了改善对中国境内大多数运营商 RTSP 服务器兼容性，如果同一个 RTSP 请求里还带了“距离当前时刻小于 1 小时”的 seek 参数（包括 `playseek`、`tvdr` 和自定义 `r2h-seek-name`），则 `r2h-start` 会被忽略，改由 seek 的起始时间生成 `Range: clock=` 头。
+
 #### 示例
 
 ```url
@@ -124,9 +126,24 @@ playseek=1704096000-1704099600
 playseek=20240101120000GMT-20240101130000GMT
 ```
 
-### 4. ISO 8601 格式（包含 T 分隔符）
+### 4. 简化 ISO 8601 格式（yyyyMMddTHHmmss）
 
-支持多种 ISO 8601 变体：
+紧凑的 ISO 8601 格式，不含短横线和冒号分隔符：
+
+```
+# 不带时区（使用 User-Agent 时区）
+playseek=20240101T120000-20240101T130000
+
+# 带 Z 后缀（UTC 时区）
+playseek=20240101T120000Z-20240101T130000Z
+
+# 带时区偏移
+playseek=20240101T200000+08:00-20240101T210000+08:00
+```
+
+### 5. ISO 8601 格式（yyyy-MM-ddTHH:mm:ss）
+
+完整的 ISO 8601 格式，支持多种变体：
 
 ```
 # 不带时区（使用 User-Agent 时区）
@@ -142,14 +159,24 @@ playseek=2024-01-01T12:00:00+08:00-2024-01-01T13:00:00+08:00
 playseek=2024-01-01T12:00:00.123-2024-01-01T13:00:00.456
 ```
 
-**特点**：
+**ISO 8601 格式共同特点**（适用于格式 4 和 5）：
 
 - 如果包含时区信息（Z 或 ±HH:MM），使用该时区，忽略 User-Agent 时区
 - 如果不包含时区信息，使用 User-Agent 中的时区进行转换
 - 输出格式保持原有的时区后缀（Z、±HH:MM 或无后缀）
-- 支持毫秒精度（.sss）
+- 完整格式（格式 5）支持毫秒精度（.sss）
 
 ## 时区处理机制
+
+### RTSP recent seek 特殊处理
+
+对于 RTSP 代理，seek 参数除了可以像 HTTP 代理那样继续作为 URL 参数传给上游，还支持一个“近实时”分支。这里的 seek 参数包括 `playseek`、`tvdr`，以及通过 `r2h-seek-name` 指定的自定义参数：
+
+- 当 seek 起始时间满足“当前时间 - 起始时间 < 3600 秒”时，rtp2httpd 不再把该 seek 参数透传到 RTSP 上游 URL
+- 该分支只取 seek 的起始时间，结束时间会被忽略
+- RTSP `PLAY` 请求会发送 `Range: clock=<yyyyMMddTHHmmssZ>-`
+- 当 seek 恰好等于 1 小时前时，不触发该分支，仍按普通 URL 参数透传
+- 如果 seek 无法解析，仍保持原有透传行为
 
 ### 时区识别
 
@@ -168,7 +195,7 @@ playseek=2024-01-01T12:00:00.123-2024-01-01T13:00:00.456
 > [!NOTE]
 > rtp2httpd 按以下步骤处理时间参数：
 >
-> 1. **解析时间格式** — 识别参数值属于哪种格式：Unix 时间戳（≤10 位数字）、`yyyyMMddHHmmss`（14 位数字）、`yyyyMMddHHmmssGMT`（14 位 + GMT 后缀）、ISO 8601（包含 `T` 分隔符）
+> 1. **解析时间格式** — 识别参数值属于哪种格式：Unix 时间戳（≤10 位数字）、`yyyyMMddHHmmss`（14 位数字）、`yyyyMMddHHmmssGMT`（14 位 + GMT 后缀）、简化 ISO 8601（`yyyyMMddTHHmmss`）、完整 ISO 8601（`yyyy-MM-ddTHH:mm:ss`）
 > 2. **解析 User-Agent 时区** — 从 User-Agent 中查找 `TZ/` 标记，提取 UTC 偏移量（秒）。如果没有时区信息，默认为 0（UTC）
 > 3. **时区转换** — Unix 时间戳和 ISO 8601 带时区的格式跳过转换；`yyyyMMddHHmmss` 和 ISO 8601 无时区的格式应用 User-Agent 时区转换
 > 4. **应用 `r2h-seek-offset`** — 如果指定了该参数，对所有格式应用额外的秒数偏移（可正可负）

@@ -4,6 +4,8 @@
 #include <netdb.h>
 #include <stdint.h>
 
+#include "url_template.h"
+
 /* ========== HTTP/SERVICE BUFFER SIZE CONFIGURATION ========== */
 
 /* HTTP URL working buffer - for URL manipulation */
@@ -54,18 +56,18 @@ typedef struct service_s {
   struct addrinfo *addr;
   struct addrinfo *msrc_addr;
   struct addrinfo *fcc_addr;
-  int fcc_type;          /* FCC protocol type */
-  uint16_t fec_port;     /* FEC multicast port (0 if not configured) */
-  char *rtp_url;         /* Full RTP URL for SERVICE_MRTP */
-  char *rtsp_url;        /* Full RTSP URL for SERVICE_RTSP */
-  char *http_url;        /* Full HTTP URL for SERVICE_HTTP */
-  char *seek_param_name; /* Name of seek parameter (e.g., "playseek", "tvdr") */
+  int fcc_type;            /* FCC protocol type */
+  uint16_t fec_port;       /* FEC multicast port (0 if not configured) */
+  char *rtp_url;           /* Full RTP URL for SERVICE_MRTP */
+  char *rtsp_url;          /* Full RTSP URL for SERVICE_RTSP */
+  char *http_url;          /* Full HTTP URL for SERVICE_HTTP */
+  char *seek_param_name;   /* Name of seek parameter (e.g., "playseek", "tvdr") */
   char *seek_param_value;  /* Value of seek parameter for time range */
   int seek_offset_seconds; /* Additional offset in seconds from r2h-seek-offset
                               parameter */
   char *user_agent;        /* User-Agent header for timezone detection */
-  char *ifname;     /* Per-service upstream interface override (from r2h-ifname) */
-  char *ifname_fcc; /* Per-service FCC interface override (from r2h-ifname-fcc) */
+  char *ifname;            /* Per-service upstream interface override (from r2h-ifname) */
+  char *ifname_fcc;        /* Per-service FCC interface override (from r2h-ifname-fcc) */
   struct service_s *next;
 } service_t;
 
@@ -133,24 +135,40 @@ service_t *service_create_from_http_url(const char *http_url);
  * @param out_seek_offset_seconds Output: seek offset in seconds
  * @return 0 on success, -1 on failure
  */
-int service_extract_seek_params(char *query_start, char **out_seek_param_name,
-                                char **out_seek_param_value,
+int service_extract_seek_params(char *query_start, char **out_seek_param_name, char **out_seek_param_value,
                                 int *out_seek_offset_seconds);
 
 /**
- * Convert seek parameter value with timezone and offset.
- * Handles "begin-end", "begin-", and "begin" formats.
+ * Analyze a seek parameter once and reuse the result across RTSP/HTTP flows.
  *
- * @param seek_param_value The seek parameter value to convert
- * @param tz_offset_seconds Timezone offset in seconds from UTC
+ * @param seek_param_value Extracted seek parameter value
  * @param seek_offset_seconds Additional seek offset in seconds
+ * @param user_agent User-Agent header for timezone detection
+ * @param parse_result Output parse result structure
+ * @return 0 on success, -1 on invalid parameters
+ */
+int service_parse_seek_value(const char *seek_param_value, int seek_offset_seconds, const char *user_agent,
+                             seek_parse_result_t *parse_result);
+
+/**
+ * Convert a parsed seek value to upstream UTC query form.
+ *
+ * @param parse_result Parsed seek value
  * @param output Output buffer for converted value
  * @param output_size Size of output buffer
  * @return 0 on success, -1 on failure
  */
-int service_convert_seek_value(const char *seek_param_value,
-                               int tz_offset_seconds, int seek_offset_seconds,
-                               char *output, size_t output_size);
+int service_convert_seek_value(const seek_parse_result_t *parse_result, char *output, size_t output_size);
+
+/**
+ * Format a recent seek begin time for RTSP PLAY Range clock headers.
+ *
+ * @param parse_result Parsed seek value
+ * @param output Output buffer for formatted yyyyMMddTHHmmssZ value
+ * @param output_size Size of output buffer
+ * @return 1 if seek is recent and formatted, 0 if not applicable, -1 on error
+ */
+int service_format_recent_seek_range(const seek_parse_result_t *parse_result, char *output, size_t output_size);
 
 /**
  * Create service from configured service with query parameter merging
@@ -168,8 +186,7 @@ int service_convert_seek_value(const char *seek_param_value,
  * @return Pointer to newly allocated service structure or NULL if no merge
  * needed/on failure
  */
-service_t *service_create_with_query_merge(service_t *configured_service,
-                                           const char *request_url,
+service_t *service_create_with_query_merge(service_t *configured_service, const char *request_url,
                                            service_type_t expected_type);
 
 /**
@@ -239,5 +256,23 @@ void service_hashmap_remove(service_t *service);
  * @return Pointer to service structure or NULL if not found
  */
 service_t *service_hashmap_get(const char *url);
+
+/**
+ * Resolve upstream URL by substituting template placeholders or appending
+ * seek parameters (query-append mode).
+ *
+ * Template mode: if URL contains placeholders, substitute them using
+ * begin/end times from parse_result.
+ * Query-append mode: if no placeholders, append seek param as query parameter.
+ *
+ * @param url The upstream URL (may contain template placeholders)
+ * @param seek_param_name Seek parameter name (e.g., "playseek")
+ * @param parse_result Parsed seek value
+ * @param output Output buffer for resolved URL
+ * @param output_size Size of output buffer
+ * @return 0 on success, -1 on error
+ */
+int service_resolve_upstream_url(const char *url, const char *seek_param_name, const seek_parse_result_t *parse_result,
+                                 char *output, size_t output_size);
 
 #endif /* SERVICE_H */

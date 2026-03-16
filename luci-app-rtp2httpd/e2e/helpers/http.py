@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import re
 import socket
 import time
 
@@ -45,6 +46,19 @@ def http_request(
         conn.close()
 
 
+def extract_catchup_source(playlist_text, channel_name):
+    """Extract catchup-source URL from the EXTINF line for a channel.
+
+    Returns ``(line, catchup_source_url)``.
+    """
+    for line in playlist_text.splitlines():
+        if channel_name in line and "catchup-source=" in line:
+            match = re.search(r'catchup-source="([^"]+)"', line)
+            assert match, "Expected catchup-source in line: %s" % line
+            return line, match.group(1)
+    raise AssertionError("Expected catchup-source line for channel: %s" % channel_name)
+
+
 def stream_get(
     host: str,
     port: int,
@@ -66,7 +80,7 @@ def stream_get(
     """
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
-    except (OSError, socket.timeout):
+    except OSError, socket.timeout:
         return 0, {}, b""
     try:
         req_lines = ["GET %s HTTP/1.0" % path, "Host: %s" % host]
@@ -98,7 +112,7 @@ def stream_get(
             return 0, {}, b""
 
         header_text = data[:header_end].decode(errors="replace")
-        body = data[header_end + 4:]
+        body = data[header_end + 4 :]
 
         parts = header_text.split("\r\n")
         status_code = int(parts[0].split()[1])
@@ -110,7 +124,7 @@ def stream_get(
                 hdrs[k.strip().lower()] = v.strip()
 
         return status_code, hdrs, body
-    except (socket.timeout, OSError):
+    except socket.timeout, OSError:
         return 0, {}, b""
     finally:
         sock.close()

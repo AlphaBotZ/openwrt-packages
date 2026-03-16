@@ -17,9 +17,6 @@
 /* Constants */
 #define TIMEZONE_MAX_OFFSET_HOURS 14  /* Maximum timezone offset (UTC+14) */
 #define TIMEZONE_MIN_OFFSET_HOURS -12 /* Minimum timezone offset (UTC-12) */
-#define TIMEZONE_MIN_BUFFER_SIZE 17   /* Minimum buffer for yyyyMMddTHHmmssZ */
-#define TIMEZONE_NAME_MAX_LEN 63      /* Maximum timezone name length */
-#define TIMEZONE_FORMAT_MAX_LEN 127   /* Maximum format string length */
 
 /*
  * Parse timezone information from User-Agent header
@@ -41,8 +38,7 @@
  *       printf("Offset: %d seconds (%+.1f hours)\n", offset, offset/3600.0);
  *   }
  */
-int timezone_parse_from_user_agent(const char *user_agent,
-                                   int *tz_offset_seconds);
+int timezone_parse_from_user_agent(const char *user_agent, int *tz_offset_seconds);
 
 /*
  * Format time in yyyyMMddHHmmss format
@@ -62,8 +58,7 @@ int timezone_parse_from_user_agent(const char *user_agent,
  * == 0) { printf("Formatted: %s\n", output);  // Output: 20240101120000
  *   }
  */
-int timezone_format_time_yyyyMMddHHmmss(const struct tm *utc_time,
-                                        char *output_time, size_t output_size);
+int timezone_format_time_yyyyMMddHHmmss(const struct tm *utc_time, char *output_time, size_t output_size);
 
 /*
  * Convert time string with timezone offset to UTC (preserving original format)
@@ -76,8 +71,7 @@ int timezone_format_time_yyyyMMddHHmmss(const struct tm *utc_time,
  *
  * Format detection is automatic. Output preserves input format.
  *
- * Thread Safety: NOT thread-safe (modifies TZ environment variable for some
- * formats)
+ * Thread Safety: NOT thread-safe (uses gmtime() which returns static buffer)
  *
  * @param input_time Input time string (must not be NULL)
  * @param tz_offset_seconds Timezone offset from User-Agent in seconds
@@ -122,9 +116,7 @@ int timezone_format_time_yyyyMMddHHmmss(const struct tm *utc_time,
  * output, sizeof(output));
  *   // Output: "2025-09-30T08:00:00" (no Z suffix)
  */
-int timezone_convert_time_with_offset(const char *input_time,
-                                      int tz_offset_seconds,
-                                      int additional_offset_seconds,
+int timezone_convert_time_with_offset(const char *input_time, int tz_offset_seconds, int additional_offset_seconds,
                                       char *output_time, size_t output_size);
 
 /*
@@ -154,10 +146,8 @@ int timezone_convert_time_with_offset(const char *input_time,
  * "±HH:MM")
  * @return 0 on success, -1 on error
  */
-int timezone_parse_iso8601(const char *iso_str, struct tm *tm_out,
-                           int *milliseconds_out, int *has_timezone_out,
-                           int *timezone_offset_out, char *timezone_suffix_out,
-                           size_t suffix_size);
+int timezone_parse_iso8601(const char *iso_str, struct tm *tm_out, int *milliseconds_out, int *has_timezone_out,
+                           int *timezone_offset_out, char *timezone_suffix_out, size_t suffix_size);
 
 /*
  * Format time as ISO 8601 string
@@ -172,8 +162,7 @@ int timezone_parse_iso8601(const char *iso_str, struct tm *tm_out,
  * @param output_size Size of output buffer (minimum 30 bytes for full format)
  * @return 0 on success, -1 on error
  */
-int timezone_format_time_iso8601(const struct tm *tm, int milliseconds,
-                                 const char *timezone_suffix, char *output,
+int timezone_format_time_iso8601(const struct tm *tm, int milliseconds, const char *timezone_suffix, char *output,
                                  size_t output_size);
 
 /*
@@ -184,7 +173,7 @@ int timezone_format_time_iso8601(const struct tm *tm, int milliseconds,
  * conversion. Always applies offset_seconds after any timezone conversion.
  * Output preserves original timezone format.
  *
- * Thread Safety: NOT thread-safe (modifies TZ environment variable)
+ * Thread Safety: NOT thread-safe (uses gmtime() which returns static buffer)
  *
  * @param iso_str Input ISO 8601 string (must not be NULL)
  * @param external_tz_offset Timezone offset from User-Agent in seconds (used
@@ -194,9 +183,26 @@ int timezone_format_time_iso8601(const struct tm *tm, int milliseconds,
  * @param output_size Size of output buffer (minimum 30 bytes)
  * @return 0 on success, -1 on error
  */
-int timezone_convert_iso8601_with_offset(const char *iso_str,
-                                         int external_tz_offset,
-                                         int offset_seconds, char *output,
+int timezone_convert_iso8601_with_offset(const char *iso_str, int external_tz_offset, int offset_seconds, char *output,
                                          size_t output_size);
+
+/*
+ * Parse a time string and convert to UTC epoch (time_t)
+ *
+ * Uses the same format detection as timezone_convert_time_with_offset():
+ * - Unix timestamp (<=10 digits): atoll() + additional_offset
+ * - yyyyMMddHHmmss[GMT]: parse, apply tz_offset + additional_offset
+ * - ISO 8601: parse, handle embedded timezone, apply offsets
+ *
+ * Thread Safety: NOT thread-safe (uses gmtime() which returns static buffer)
+ *
+ * @param input_time Input time string (must not be NULL)
+ * @param tz_offset_seconds Timezone offset in seconds from UTC
+ * @param additional_offset_seconds Additional offset in seconds
+ * @param out_utc Output: resulting UTC epoch value (must not be NULL)
+ * @return 0 on success, -1 on error
+ */
+int timezone_parse_to_utc(const char *input_time, int tz_offset_seconds, int additional_offset_seconds,
+                          time_t *out_utc);
 
 #endif /* TIMEZONE_H */

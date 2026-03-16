@@ -12,6 +12,9 @@ project(rtp2httpd
   DESCRIPTION "RTP to HTTP streaming daemon"
 )
 
+# ── Compile commands (for clangd) ─────────────────────────────────
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ── C standard ──────────────────────────────────────────────────────
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -34,6 +37,7 @@ set(COMMON_SOURCES
   src/http.c
   src/http_fetch.c
   src/service.c
+  src/url_template.c
   src/rtp.c
   src/rtp_reorder.c
   src/rtp_fec.c

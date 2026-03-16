@@ -15,7 +15,6 @@
 #define FCC_FMT_HUAWEI_RESP 6 /* RTCP Response */
 #define FCC_FMT_HUAWEI_SYN 8  /* RTCP Sync Notification */
 #define FCC_FMT_HUAWEI_TERM 9 /* RTCP Termination */
-#define FCC_FMT_HUAWEI_NAT 12 /* NAT Traversal packet */
 
 /**
  * Build Huawei FCC request packet - FMT 5
@@ -25,8 +24,7 @@
  * @param fcc_client_nport FCC client port (network byte order)
  * @return Pointer to static packet buffer
  */
-uint8_t *build_fcc_request_pk_huawei(struct addrinfo *maddr, uint32_t local_ip,
-                                     uint16_t fcc_client_nport);
+uint8_t *build_fcc_request_pk_huawei(struct addrinfo *maddr, uint32_t local_ip, uint16_t fcc_client_nport);
 
 /**
  * Build Huawei FCC NAT traversal packet - FMT 12
@@ -61,8 +59,7 @@ int fcc_huawei_initialize_and_request(stream_context_t *ctx);
  * @param buf_len Buffer length
  * @return 0 on success, -1 for fallback to multicast, 1 for state restart
  */
-int fcc_huawei_handle_server_response(stream_context_t *ctx, uint8_t *buf,
-                                      int buf_len);
+int fcc_huawei_handle_server_response(stream_context_t *ctx, uint8_t *buf, int buf_len);
 
 /**
  * Send Huawei FCC termination packet
@@ -73,7 +70,6 @@ int fcc_huawei_handle_server_response(stream_context_t *ctx, uint8_t *buf,
  * @param reason Reason for termination
  * @return 0 on success, -1 on error
  */
-int fcc_huawei_send_term_packet(fcc_session_t *fcc, service_t *service,
-                                uint16_t seqn, const char *reason);
+int fcc_huawei_send_term_packet(fcc_session_t *fcc, service_t *service, uint16_t seqn, const char *reason);
 
 #endif /* __FCC_HUAWEI_H__ */
