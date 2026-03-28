@@ -92,7 +92,7 @@ SYNC_LIST=(
     "https://github.com/sundaqiang/openwrt-packages . sundaqiang-packages"
     "https://github.com/zxlhhyccc/luci-app-v2raya . luci-app-v2raya"
 #    "https://github.com/kenzok8/luci-theme-ifit . luci-theme-ifit"
-    "https://github.com/kenzok78/openwrt-minisign . openwrt-minisign"
+#    "https://github.com/kenzok78/openwrt-minisign . openwrt-minisign"
     "https://github.com/kenzok78/luci-app-adguardhome . luci-app-adguardhome"
     "https://github.com/kenzok78/luci-theme-design . luci-theme-design"
     "https://github.com/kenzok78/luci-app-design-config . luci-app-design-config"
