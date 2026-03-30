@@ -94,7 +94,7 @@ The package files will be found under `bin/packages/your_architecture/momo`.
 - kmod-nft-socket
 - kmod-nft-tproxy
 - kmod-tun
-- sing-box (1.12)
+- sing-box >= 1.12
 
 ## Contributors
 

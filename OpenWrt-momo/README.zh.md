@@ -94,7 +94,7 @@ make package/luci-app-momo/compile
 - kmod-nft-socket
 - kmod-nft-tproxy
 - kmod-tun
-- sing-box (1.12)
+- sing-box >= 1.12
 
 ## 贡献者
 
