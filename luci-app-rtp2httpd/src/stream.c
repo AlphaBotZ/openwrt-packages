@@ -1,6 +1,7 @@
 #include "stream.h"
 #include "connection.h"
 #include "fcc.h"
+#include "http_proxy.h"
 #include "multicast.h"
 #include "rtp.h"
 #include "rtp_fec.h"
@@ -19,12 +20,20 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-/*
- * Process RTP payload with reordering - either forward to client (streaming)
- * or capture I-frame (snapshot)
- * Returns: bytes forwarded (>= 0), 1 if I-frame captured for snapshot, -1 on
- * error
- */
+void stream_on_client_drain(stream_context_t *ctx) {
+  /* Hot path: every successful client write hits this.  Bail out cheaply when
+   * no upstream is paused (vast majority of streams). */
+  if (!ctx || !ctx->conn || !ctx->conn->any_upstream_paused)
+    return;
+  if (!connection_can_resume_upstream(ctx->conn))
+    return;
+  /* Resume functions are no-ops if not paused; no need to re-check here. */
+  if (ctx->http_proxy.initialized)
+    http_proxy_resume_upstream(&ctx->http_proxy);
+  if (ctx->rtsp.initialized)
+    rtsp_resume_upstream(&ctx->rtsp);
+}
+
 int stream_process_rtp_payload(stream_context_t *ctx, buffer_ref_t *buf_ref) {
   uint8_t *data_ptr = (uint8_t *)buf_ref->data + buf_ref->data_offset;
   uint8_t *payload;
@@ -98,9 +107,6 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events, int64
       }
       return -1;
     }
-    if (result > 0) {
-      ctx->total_bytes_sent += (uint64_t)result;
-    }
     return 0;
   }
 
@@ -109,9 +115,6 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events, int64
     int result = rtsp_handle_udp_rtp_data(&ctx->rtsp, ctx->conn);
     if (result < 0) {
       return -1; /* Error */
-    }
-    if (result > 0) {
-      ctx->total_bytes_sent += (uint64_t)result;
     }
     return 0; /* Success - processed data, continue with other events */
   }
@@ -133,9 +136,6 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events, int64
     if (result < 0) {
       logger(LOG_ERROR, "HTTP Proxy: Socket event handling failed");
       return -1;
-    }
-    if (result > 0) {
-      ctx->total_bytes_sent += (uint64_t)result;
     }
     return 0;
   }
@@ -174,6 +174,8 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn, se
     }
 
     if (service_parse_seek_value(service->seek_param_value, service->seek_offset_seconds, service->user_agent,
+                                 service->seek_mode, service->seek_mode_tz_explicit,
+                                 service->seek_mode_tz_offset_seconds, service->seek_mode_window_seconds,
                                  &seek_parse_result) != 0) {
       logger(LOG_ERROR, "HTTP Proxy: Failed to parse seek parameters");
       return -1;
@@ -253,6 +255,8 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn, se
       }
 
       if (service_parse_seek_value(service->seek_param_value, service->seek_offset_seconds, service->user_agent,
+                                   service->seek_mode, service->seek_mode_tz_explicit,
+                                   service->seek_mode_tz_offset_seconds, service->seek_mode_window_seconds,
                                    &seek_parse_result) != 0) {
         logger(LOG_ERROR, "RTSP: Failed to parse seek parameters");
         return -1;
@@ -264,11 +268,14 @@ int stream_context_init_for_worker(stream_context_t *ctx, connection_t *conn, se
         resolved_seek_param_name = NULL;
       }
 
-      /* Resolve URL templates / seek params, then parse */
+      /* Resolve URL templates / seek params, then parse. Always forward the
+       * parsed seek result so URL templates (${start}/${end}/...) expand even
+       * when use_playseek_range=1; suppression of the literal playseek query
+       * append on the non-template branch is already handled via the
+       * resolved_seek_param_name=NULL gating above. */
       char resolved_rtsp_url[2048];
-      if (service_resolve_upstream_url(service->rtsp_url, resolved_seek_param_name,
-                                       ctx->rtsp.use_playseek_range ? NULL : &seek_parse_result, resolved_rtsp_url,
-                                       sizeof(resolved_rtsp_url)) < 0) {
+      if (service_resolve_upstream_url(service->rtsp_url, resolved_seek_param_name, &seek_parse_result,
+                                       resolved_rtsp_url, sizeof(resolved_rtsp_url)) < 0) {
         logger(LOG_ERROR, "RTSP: Failed to resolve upstream URL");
         return -1;
       }

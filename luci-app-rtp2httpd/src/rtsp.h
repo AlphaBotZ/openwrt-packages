@@ -30,18 +30,22 @@
 /* RTSP session ID - server-generated session identifier */
 #define RTSP_SESSION_ID_SIZE 128
 
-/* RTSP server URL - complete RTSP URL */
+/* RTSP server URL - complete RTSP URL. Kept in sync with HTTP_URL_BUFFER_SIZE
+ * (service.h) so the entire pipeline shares one URL ceiling and there is no
+ * silent mid-pipeline truncation. */
 #define RTSP_SERVER_URL_SIZE 1024
 
 /* RTSP server hostname - DNS name or IP address */
 #define RTSP_SERVER_HOST_SIZE 256
 
-/* RTSP server path - path component of URL with query string */
+/* RTSP server path - path component of URL with query string. Same sizing
+ * rationale as RTSP_SERVER_URL_SIZE. */
 #define RTSP_SERVER_PATH_SIZE 1024
 
 #define RTSP_CREDENTIAL_SIZE 128
 
-/* URL copy buffer - for URL parsing operations */
+/* URL copy buffer - for URL parsing operations. Same sizing rationale as
+ * RTSP_SERVER_URL_SIZE. */
 #define RTSP_URL_COPY_SIZE 1024
 
 /* Time conversion buffers - for playseek time formatting */
@@ -192,6 +196,9 @@ typedef struct {
   uint8_t response_buffer[RTSP_RESPONSE_BUFFER_SIZE]; /* Buffer for RTSP
                                                          responses (control
                                                          plane, not media) */
+
+  /* Flow control state (TCP interleaved transport only) */
+  int upstream_paused; /* 1 = upstream recv currently suspended due to client backpressure */
 } rtsp_session_t;
 
 /* Function prototypes */
@@ -283,11 +290,18 @@ int rtsp_send_keepalive(rtsp_session_t *session);
 int rtsp_state_machine_advance(rtsp_session_t *session);
 
 /**
- * Periodic tick for RTSP session (STUN timeout, keepalive)
+ * Periodic tick for RTSP session (STUN timeout, keepalive, max-pause guard)
  * @param session RTSP session
  * @param now Current timestamp in milliseconds
- * @return 0 on success
+ * @return 0 on success, -1 if session must be closed (e.g. paused too long)
  */
 int rtsp_session_tick(rtsp_session_t *session, int64_t now);
+
+/**
+ * Resume reading from upstream RTSP TCP socket after client send queue has
+ * drained.  No-op for UDP transport mode.  Called from stream_on_client_drain.
+ * @param session RTSP session
+ */
+void rtsp_resume_upstream(rtsp_session_t *session);
 
 #endif /* __RTSP_H__ */

@@ -39,6 +39,7 @@ The following FCC (Fast Channel Change) server addresses were collected from the
   - `220.191.136.24:8027` (Taizhou)
   - `115.233.42.69:8027` (Shaoxing)
   - `202.101.181.109:8027` (Quzhou)
+  - `115.208.248.108:8027` (Huzhou)
 
 ## Shanghai
 
