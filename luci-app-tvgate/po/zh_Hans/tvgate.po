@@ -15,8 +15,11 @@ msgstr "TVGate 是一款高性能的本地网络资源转发与代理工具。"
 msgid "Configuration"
 msgstr "配置"
 
-msgid "TVGate 配置"
+msgid "TVGate Config"
 msgstr "TVGate 配置"
+
+msgid "Multicast Config"
+msgstr "组播配置"
 
 msgid "Settings"
 msgstr "设置"
@@ -76,8 +79,8 @@ msgstr "使用说明"
 msgid "Configure the download proxy (e.g., https://hk.gh-proxy.com/) to speed up downloads"
 msgstr "配置下载代理（例如 https://hk.gh-proxy.com/）以加速下载"
 
-msgid "Click \\\"Download/Update Binary\\\" to download the TVGate executable"
-msgstr "点击“下载/更新二进制”以下载 TVGate 可执行文件"
+msgid "Click \"Download/Update Binary\" to download the TVGate executable"
+msgstr "点击"下载/更新二进制"以下载 TVGate 可执行文件"
 
 msgid "Enable the service and apply the settings"
 msgstr "启用服务并应用设置"
@@ -96,6 +99,10 @@ msgstr "Web 管理"
 
 msgid "Monitoring"
 msgstr "监控"
+
+msgid "Streaming Port"
+msgstr "流媒体端口"
+
 # Status page strings
 msgid "Running"
 msgstr "运行中"
@@ -147,13 +154,8 @@ msgstr "下载 TVGate 二进制失败："
 
 msgid "Failed to download TVGate binary due to communication error."
 msgstr "由于通信错误，下载 TVGate 二进制失败。"
-# CBI field descriptions
-msgid "Web 路径"
-msgstr "Web 路径"
 
-msgid "Monitor Path"
-msgstr "监控路径"
-
+# CBI model labels
 msgid "Port"
 msgstr "端口"
 
@@ -162,6 +164,37 @@ msgstr "用户名"
 
 msgid "Password"
 msgstr "密码"
+
+# Web config page labels
+msgid "TVGate Management"
+msgstr "TVGate 管理配置"
+
+msgid "Tips"
+msgstr "使用提示"
+
+msgid "On first install, download and start the TVGate binary."
+msgstr "首次安装请先下载并启动 TVGate 二进制。"
+
+msgid "Then configure and save settings on this page."
+msgstr "随后在此页面完善并保存配置。"
+
+msgid "After saving the configuration, verify that the changes have taken effect."
+msgstr "保存配置后,确认修改已生效。"
+
+msgid "Enable Web"
+msgstr "Web 启用"
+
+msgid "Web Username"
+msgstr "Web 用户名"
+
+msgid "Web Password"
+msgstr "Web 密码"
+
+msgid "Web Path"
+msgstr "Web 路径"
+
+msgid "Monitor Path"
+msgstr "监控路径"
 
 msgid "Log Enabled"
 msgstr "日志启用"
@@ -181,20 +214,33 @@ msgstr "日志保留天数"
 msgid "Log Compress"
 msgstr "日志压缩"
 
+msgid "Save"
+msgstr "保存"
+
+msgid "Saved successfully!"
+msgstr "保存成功！"
+
+msgid "Save failed!"
+msgstr "保存失败！"
+
+# Web config page descriptions
+msgid "Enable the Web management interface"
+msgstr "启用 Web 管理接口"
+
+msgid "Username to log into the management page"
+msgstr "用于登录管理页面的用户名"
+
+msgid "Password to log into the management page"
+msgstr "用于登录管理页面的密码"
+
 msgid "Web path prefix, e.g., /web/"
 msgstr "Web 管理前缀路径，例如 /web/"
-
-msgid "Monitor endpoint path, e.g., /status"
-msgstr "状态接口路径，例如 /status"
 
 msgid "Streaming port in server section"
 msgstr "服务监听端口（位于 server 分节）"
 
-msgid "Admin username for Web UI"
-msgstr "用于登录管理页面的用户名"
-
-msgid "Admin password for Web UI"
-msgstr "用于登录管理页面的密码"
+msgid "Monitor endpoint path, e.g., /status"
+msgstr "状态接口路径，例如 /status"
 
 msgid "Enable log output"
 msgstr "是否启用日志输出"
@@ -214,136 +260,61 @@ msgstr "日志文件保留的天数"
 msgid "Compress rotated log files"
 msgstr "是否压缩轮转产生的日志文件"
 
-# View labels
-msgid "TVGate 管理配置"
-msgstr "TVGate 管理配置"
-
-msgid "使用提示"
-msgstr "使用提示"
-
-msgid "首次安装请先下载并启动 TVGate 二进制。"
-msgstr "首次安装请先下载并启动 TVGate 二进制。"
-
-msgid "随后在此页面完善并保存配置。"
-msgstr "随后在此页面完善并保存配置。"
-
-msgid "保存配置后,确认修改已生效。"
-msgstr "保存配置后,确认修改已生效。"
-
-msgid "Web 启用"
-msgstr "Web 启用"
-
-msgid "Web 用户名"
-msgstr "Web 用户名"
-
-msgid "Web 密码"
-msgstr "Web 密码"
-
-msgid "Streaming Port"
-msgstr "Streaming 端口"
-
-msgid "保存"
-msgstr "保存"
-
-# View field descriptions
-msgid "启用 Web 管理接口"
-msgstr "启用 Web 管理接口"
-
-msgid "用于登录管理页面的用户名"
-msgstr "用于登录管理页面的用户名"
-
-msgid "用于登录管理页面的密码"
-msgstr "用于登录管理页面的密码"
-
-msgid "Web 管理前缀路径，例如 /web/"
-msgstr "Web 管理前缀路径，例如 /web/"
-
-msgid "服务监听端口（位于 server 分节）"
-msgstr "服务监听端口（位于 server 分节）"
-
-msgid "状态接口路径，例如 /status"
-msgstr "状态接口路径，例如 /status"
-
-msgid "是否启用日志输出"
-msgstr "是否启用日志输出"
-
-msgid "留空表示标准输出，否则写入指定文件路径"
-msgstr "留空表示标准输出，否则写入指定文件路径"
-
-msgid "达到大小后进行轮转"
-msgstr "达到大小后进行轮转"
-
-msgid "保留的压缩备份文件数量"
-msgstr "保留的压缩备份文件数量"
-
-msgid "日志文件保留的天数"
-msgstr "日志文件保留的天数"
-
-msgid "是否压缩轮转产生的日志文件"
-msgstr "是否压缩轮转产生的日志文件"
-
-msgid "Multicast 配置"
-msgstr "组播配置"
-
-msgid "组播 / FCC 配置"
+# Multicast config page labels
+msgid "Multicast / FCC Config"
 msgstr "组播 / FCC 配置"
 
-msgid "组播监听接口"
+msgid "Multicast Listen Interfaces"
 msgstr "组播监听接口"
 
-msgid "添加接口"
+msgid "Add Interface"
 msgstr "添加接口"
 
-msgid "用于接收组播流量的网络接口列表，留空表示使用默认接口"
-msgstr "用于接收组播流量的网络接口列表，留空表示使用默认接口"
-
-msgid "多播重新加入间隔"
+msgid "Multicast Rejoin Interval"
 msgstr "多播重新加入间隔"
 
-msgid "多播重新加入间隔时间，例如 10s。设置为 0s 表示禁用"
-msgstr "多播重新加入间隔时间，例如 10s。设置为 0s 表示禁用"
-
-msgid "FCC 类型"
+msgid "FCC Type"
 msgstr "FCC 类型"
 
-msgid "电信/中兴/烽火"
+msgid "Telecom / ZTE / FiberHome"
 msgstr "电信/中兴/烽火"
 
-msgid "华为"
+msgid "Huawei"
 msgstr "华为"
 
-msgid "选择 FCC 协议类型"
-msgstr "选择 FCC 协议类型"
-
-msgid "FCC 缓存大小"
+msgid "FCC Cache Size"
 msgstr "FCC 缓存大小"
 
-msgid "FCC 缓存的数据包数量"
-msgstr "FCC 缓存的数据包数量"
-
-msgid "FCC 监听端口范围"
+msgid "FCC Listen Port Range"
 msgstr "FCC 监听端口范围"
 
-msgid "FCC 监听端口范围（最小值 - 最大值）"
-msgstr "FCC 监听端口范围（最小值 - 最大值）"
-
-msgid "通用上游接口"
+msgid "Generic Upstream Interface"
 msgstr "通用上游接口"
 
-msgid "通用上游接口，用于多播和非 FCC 连接（可选）"
-msgstr "通用上游接口，用于多播和非 FCC 连接（可选）"
-
-msgid "FCC 专用上游接口"
+msgid "FCC Dedicated Upstream Interface"
 msgstr "FCC 专用上游接口"
 
-msgid "FCC 专用上游接口，优先级高于通用接口。留空则使用通用接口"
-msgstr "FCC 专用上游接口，优先级高于通用接口。留空则使用通用接口"
-
-msgid "删除"
+msgid "Delete"
 msgstr "删除"
 
-msgid "保存成功！"
-msgstr "保存成功！"
+# Multicast config page descriptions
+msgid "Network interfaces used to receive multicast traffic. Leave empty to use the default interface."
+msgstr "用于接收组播流量的网络接口列表，留空表示使用默认接口"
 
-msgid "保存失败！"
-msgstr "保存失败！"
+msgid "Multicast rejoin interval, for example 10s. Set to 0s to disable."
+msgstr "多播重新加入间隔时间，例如 10s。设置为 0s 表示禁用"
+
+msgid "Select the FCC protocol type"
+msgstr "选择 FCC 协议类型"
+
+msgid "Number of packets in the FCC cache"
+msgstr "FCC 缓存的数据包数量"
+
+msgid "FCC listen port range (min - max)"
+msgstr "FCC 监听端口范围（最小值 - 最大值）"
+
+msgid "Generic upstream interface for multicast and non-FCC connections (optional)"
+msgstr "通用上游接口，用于多播和非 FCC 连接（可选）"
+
+msgid "Dedicated upstream interface for FCC. Higher priority than the generic interface. Leave empty to use the generic interface."
+msgstr "FCC 专用上游接口，优先级高于通用接口。留空则使用通用接口"

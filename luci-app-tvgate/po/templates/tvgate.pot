@@ -2,10 +2,20 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
+# Controller and sections
 msgid "TVGate"
 msgstr ""
 
 msgid "TVGate is a high-performance local network resource forwarding and proxy tool."
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "TVGate Config"
+msgstr ""
+
+msgid "Multicast Config"
 msgstr ""
 
 msgid "Settings"
@@ -14,48 +24,34 @@ msgstr ""
 msgid "Enable"
 msgstr ""
 
-msgid "Enable TVGate service"
-msgstr ""
-
 msgid "Download Proxy"
-msgstr ""
-
-msgid "Proxy for downloading TVGate binary (e.g., https://hk.gh-proxy.com)"
 msgstr ""
 
 msgid "Download URL"
 msgstr ""
 
-msgid "URL for downloading TVGate binary (leave empty to auto-detect based on CPU architecture)"
-msgstr ""
-
-msgid "Listen Port"
-msgstr ""
-
-msgid "Port for TV streaming service"
+msgid "Web Settings"
 msgstr ""
 
 msgid "Status"
 msgstr ""
 
-msgid "Download/Update Binary"
+msgid "Download / Update Binary"
 msgstr ""
 
-msgid "Download or update the TVGate binary file"
+msgid "CPU:"
 msgstr ""
 
-msgid "Service Status"
+msgid "Detected:"
 msgstr ""
 
-msgid "Running"
+msgid "Suggested URL:"
 msgstr ""
 
-msgid "Stopped"
+msgid "Error detecting architecture"
 msgstr ""
 
-msgid "Streaming Port"
-msgstr ""
-
+# Overview page
 msgid "Overview"
 msgstr ""
 
@@ -74,10 +70,16 @@ msgstr ""
 msgid "Support Docker deployment, systemd service management and OpenWrt system integration"
 msgstr ""
 
-msgid "Configure the download proxy (e.g., https://hk.gh-proxy.com) to speed up downloads"
+msgid "Usage instructions"
+msgstr ""
+
+msgid "Configure the download proxy (e.g., https://hk.gh-proxy.com/) to speed up downloads"
 msgstr ""
 
 msgid "Click \"Download/Update Binary\" to download the TVGate executable"
+msgstr ""
+
+msgid "Enable the service and apply the settings"
 msgstr ""
 
 msgid "Access the web interface at http://[router-ip]:[streaming-port]/web/ to manage settings"
@@ -89,7 +91,20 @@ msgstr ""
 msgid "Monitor service status at http://[router-ip]:[streaming-port]/status"
 msgstr ""
 
-msgid "Binary Status"
+msgid "Web Management"
+msgstr ""
+
+msgid "Monitoring"
+msgstr ""
+
+msgid "Streaming Port"
+msgstr ""
+
+# Status page strings
+msgid "Running"
+msgstr ""
+
+msgid "Stopped"
 msgstr ""
 
 msgid "Installed"
@@ -98,28 +113,34 @@ msgstr ""
 msgid "Not installed"
 msgstr ""
 
-msgid "Usage instructions"
+msgid "Unknown"
 msgstr ""
 
-msgid "Enable the service and apply the settings"
+msgid "Collecting data..."
 msgstr ""
 
-msgid "TVGate Addresses"
+msgid "Detecting..."
 msgstr ""
 
-msgid "Web Management"
+msgid "Service Status"
 msgstr ""
 
-msgid "Monitoring"
+msgid "Binary Status"
 msgstr ""
 
-msgid "Open TVGate Web Interface"
+msgid "Monitor Interface"
 msgstr ""
 
-msgid "Download Binary First"
+msgid "Management Interface"
+msgstr ""
+
+msgid "Download/Update Binary"
 msgstr ""
 
 msgid "Are you sure you want to download/update the TVGate binary?"
+msgstr ""
+
+msgid "Downloading..."
 msgstr ""
 
 msgid "TVGate binary downloaded successfully!"
@@ -128,14 +149,169 @@ msgstr ""
 msgid "Failed to download TVGate binary:"
 msgstr ""
 
-msgid "Downloading..."
+msgid "Failed to download TVGate binary due to communication error."
 msgstr ""
 
-msgid "Detecting..."
+# CBI model labels
+msgid "Port"
 msgstr ""
 
-msgid "Architecture Info"
+msgid "Username"
 msgstr ""
 
-msgid "Binary Status"
+msgid "Password"
+msgstr ""
+
+# Web config page labels
+msgid "TVGate Management"
+msgstr ""
+
+msgid "Tips"
+msgstr ""
+
+msgid "On first install, download and start the TVGate binary."
+msgstr ""
+
+msgid "Then configure and save settings on this page."
+msgstr ""
+
+msgid "After saving the configuration, verify that the changes have taken effect."
+msgstr ""
+
+msgid "Enable Web"
+msgstr ""
+
+msgid "Web Username"
+msgstr ""
+
+msgid "Web Password"
+msgstr ""
+
+msgid "Web Path"
+msgstr ""
+
+msgid "Monitor Path"
+msgstr ""
+
+msgid "Log Enabled"
+msgstr ""
+
+msgid "Log File"
+msgstr ""
+
+msgid "Log Max Size (MB)"
+msgstr ""
+
+msgid "Log Max Backups"
+msgstr ""
+
+msgid "Log Max Age (days)"
+msgstr ""
+
+msgid "Log Compress"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Saved successfully!"
+msgstr ""
+
+msgid "Save failed!"
+msgstr ""
+
+# Web config page descriptions
+msgid "Enable the Web management interface"
+msgstr ""
+
+msgid "Username to log into the management page"
+msgstr ""
+
+msgid "Password to log into the management page"
+msgstr ""
+
+msgid "Web path prefix, e.g., /web/"
+msgstr ""
+
+msgid "Streaming port in server section"
+msgstr ""
+
+msgid "Monitor endpoint path, e.g., /status"
+msgstr ""
+
+msgid "Enable log output"
+msgstr ""
+
+msgid "Empty for stdout, otherwise file path"
+msgstr ""
+
+msgid "Rotate when max size reached (MB)"
+msgstr ""
+
+msgid "Number of compressed backups to keep"
+msgstr ""
+
+msgid "Retention days for log files"
+msgstr ""
+
+msgid "Compress rotated log files"
+msgstr ""
+
+# Multicast config page labels
+msgid "Multicast / FCC Config"
+msgstr ""
+
+msgid "Multicast Listen Interfaces"
+msgstr ""
+
+msgid "Add Interface"
+msgstr ""
+
+msgid "Multicast Rejoin Interval"
+msgstr ""
+
+msgid "FCC Type"
+msgstr ""
+
+msgid "Telecom / ZTE / FiberHome"
+msgstr ""
+
+msgid "Huawei"
+msgstr ""
+
+msgid "FCC Cache Size"
+msgstr ""
+
+msgid "FCC Listen Port Range"
+msgstr ""
+
+msgid "Generic Upstream Interface"
+msgstr ""
+
+msgid "FCC Dedicated Upstream Interface"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+# Multicast config page descriptions
+msgid "Network interfaces used to receive multicast traffic. Leave empty to use the default interface."
+msgstr ""
+
+msgid "Multicast rejoin interval, for example 10s. Set to 0s to disable."
+msgstr ""
+
+msgid "Select the FCC protocol type"
+msgstr ""
+
+msgid "Number of packets in the FCC cache"
+msgstr ""
+
+msgid "FCC listen port range (min - max)"
+msgstr ""
+
+msgid "Generic upstream interface for multicast and non-FCC connections (optional)"
+msgstr ""
+
+msgid "Dedicated upstream interface for FCC. Higher priority than the generic interface. Leave empty to use the generic interface."
 msgstr ""

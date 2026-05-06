@@ -2,6 +2,8 @@
 
 LuCI app for TVGate on OpenWrt.
 
+[中文文档](README_zh.md)
+
 ## Description
 
 TVGate is a high-performance local network resource forwarding and proxy tool. It can forward internal network resources (such as http, https, rtsp, rtp) to the external network through HTTP, allowing external network users to access streams or request proxy resources by accessing the port (default 8888) of the Go program host.

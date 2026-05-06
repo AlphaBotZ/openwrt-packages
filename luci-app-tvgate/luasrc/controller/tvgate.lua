@@ -72,13 +72,13 @@ function index()
 	-- 使用 template 方式定义 web_config 页面路由
 	local ok, view = pcall(require, "luci.view.tvgate.web_config")
 	if ok then
-		entry({"admin", "services", "tvgate", "web_config"}, template("tvgate/web_config"), i18n.translate("TVGate 配置"), 20).leaf = true
+		entry({"admin", "services", "tvgate", "web_config"}, template("tvgate/web_config"), i18n.translate("TVGate Config"), 20).leaf = true
 	else
-		entry({"admin", "services", "tvgate", "web_config"}, call("display_web_config"), i18n.translate("TVGate 配置"), 20).leaf = true
+		entry({"admin", "services", "tvgate", "web_config"}, call("display_web_config"), i18n.translate("TVGate Config"), 20).leaf = true
 	end
 
 	-- multicast 配置页面
-	entry({"admin", "services", "tvgate", "multicast_config"}, template("tvgate/multicast_config"), i18n.translate("Multicast 配置"), 21).leaf = true
+	entry({"admin", "services", "tvgate", "multicast_config"}, template("tvgate/multicast_config"), i18n.translate("Multicast Config"), 21).leaf = true
 	
 	-- 单独定义 API 接口路由
 	entry({"admin", "services", "tvgate", "web"}, call("act_web_config"), nil).leaf = true

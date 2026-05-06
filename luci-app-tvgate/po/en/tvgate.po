@@ -15,8 +15,11 @@ msgstr "TVGate is a high-performance local network resource forwarding and proxy
 msgid "Configuration"
 msgstr "Configuration"
 
-msgid "TVGate 配置"
+msgid "TVGate Config"
 msgstr "TVGate Config"
+
+msgid "Multicast Config"
+msgstr "Multicast Config"
 
 msgid "Settings"
 msgstr "Settings"
@@ -76,7 +79,7 @@ msgstr "Usage instructions"
 msgid "Configure the download proxy (e.g., https://hk.gh-proxy.com/) to speed up downloads"
 msgstr "Configure the download proxy (e.g., https://hk.gh-proxy.com/) to speed up downloads"
 
-msgid "Click \\\"Download/Update Binary\\\" to download the TVGate executable"
+msgid "Click \"Download/Update Binary\" to download the TVGate executable"
 msgstr "Click \"Download/Update Binary\" to download the TVGate executable"
 
 msgid "Enable the service and apply the settings"
@@ -96,6 +99,10 @@ msgstr "Web Management"
 
 msgid "Monitoring"
 msgstr "Monitoring"
+
+msgid "Streaming Port"
+msgstr "Streaming Port"
+
 # Status page strings
 msgid "Running"
 msgstr "Running"
@@ -147,13 +154,8 @@ msgstr "Failed to download TVGate binary:"
 
 msgid "Failed to download TVGate binary due to communication error."
 msgstr "Failed to download TVGate binary due to communication error."
-# CBI field descriptions
-msgid "Web 路径"
-msgstr "Web Path"
 
-msgid "Monitor Path"
-msgstr "Monitor Path"
-
+# CBI model labels
 msgid "Port"
 msgstr "Port"
 
@@ -162,6 +164,37 @@ msgstr "Username"
 
 msgid "Password"
 msgstr "Password"
+
+# Web config page labels
+msgid "TVGate Management"
+msgstr "TVGate Management"
+
+msgid "Tips"
+msgstr "Tips"
+
+msgid "On first install, download and start the TVGate binary."
+msgstr "On first install, download and start the TVGate binary."
+
+msgid "Then configure and save settings on this page."
+msgstr "Then configure and save settings on this page."
+
+msgid "After saving the configuration, verify that the changes have taken effect."
+msgstr "After saving the configuration, verify that the changes have taken effect."
+
+msgid "Enable Web"
+msgstr "Enable Web"
+
+msgid "Web Username"
+msgstr "Web Username"
+
+msgid "Web Password"
+msgstr "Web Password"
+
+msgid "Web Path"
+msgstr "Web Path"
+
+msgid "Monitor Path"
+msgstr "Monitor Path"
 
 msgid "Log Enabled"
 msgstr "Log Enabled"
@@ -181,20 +214,33 @@ msgstr "Log Max Age (days)"
 msgid "Log Compress"
 msgstr "Log Compress"
 
+msgid "Save"
+msgstr "Save"
+
+msgid "Saved successfully!"
+msgstr "Saved successfully!"
+
+msgid "Save failed!"
+msgstr "Save failed!"
+
+# Web config page descriptions
+msgid "Enable the Web management interface"
+msgstr "Enable the Web management interface"
+
+msgid "Username to log into the management page"
+msgstr "Username to log into the management page"
+
+msgid "Password to log into the management page"
+msgstr "Password to log into the management page"
+
 msgid "Web path prefix, e.g., /web/"
 msgstr "Web path prefix, e.g., /web/"
-
-msgid "Monitor endpoint path, e.g., /status"
-msgstr "Monitor endpoint path, e.g., /status"
 
 msgid "Streaming port in server section"
 msgstr "Streaming port in server section"
 
-msgid "Admin username for Web UI"
-msgstr "Admin username for Web UI"
-
-msgid "Admin password for Web UI"
-msgstr "Admin password for Web UI"
+msgid "Monitor endpoint path, e.g., /status"
+msgstr "Monitor endpoint path, e.g., /status"
 
 msgid "Enable log output"
 msgstr "Enable log output"
@@ -214,157 +260,61 @@ msgstr "Retention days for log files"
 msgid "Compress rotated log files"
 msgstr "Compress rotated log files"
 
-# View labels
-msgid "TVGate 管理配置"
-msgstr "TVGate Management"
-
-msgid "使用提示"
-msgstr "Tips"
-
-msgid "首次安装请先下载并启动 TVGate 二进制。"
-msgstr "On first install, download and start the TVGate binary."
-
-msgid "随后在此页面完善并保存配置。"
-msgstr "Then configure and save settings on this page."
-
-msgid "保存配置后,确认修改已生效。"
-msgstr "After saving the configuration, verify that the changes have taken effect."
-
-msgid "Web 启用"
-msgstr "Enable Web"
-
-msgid "Web 用户名"
-msgstr "Web Username"
-
-msgid "Web 密码"
-msgstr "Web Password"
-
-msgid "Streaming Port"
-msgstr "Streaming Port"
-
-msgid "监控路径"
-msgstr "Monitor Path"
-
-msgid "日志启用"
-msgstr "Log Enabled"
-
-msgid "日志文件"
-msgstr "Log File"
-
-msgid "日志最大大小(MB)"
-msgstr "Log Max Size (MB)"
-
-msgid "日志备份个数"
-msgstr "Log Max Backups"
-
-msgid "日志保留天数"
-msgstr "Log Retention (days)"
-
-msgid "日志压缩"
-msgstr "Log Compress"
-
-msgid "保存"
-msgstr "Save"
-
-# View field descriptions
-msgid "启用 Web 管理接口"
-msgstr "Enable the Web management interface"
-
-msgid "用于登录管理页面的用户名"
-msgstr "Username to log into the management page"
-
-msgid "用于登录管理页面的密码"
-msgstr "Password to log into the management page"
-
-msgid "Web 管理前缀路径，例如 /web/"
-msgstr "Web management prefix path, e.g., /web/"
-
-msgid "服务监听端口（位于 server 分节）"
-msgstr "Service listening port (in server section)"
-
-msgid "状态接口路径，例如 /status"
-msgstr "Status endpoint path, e.g., /status"
-
-msgid "是否启用日志输出"
-msgstr "Enable log output"
-
-msgid "留空表示标准输出，否则写入指定文件路径"
-msgstr "Empty for stdout, otherwise write to file"
-
-msgid "达到大小后进行轮转"
-msgstr "Rotate when size is reached"
-
-msgid "保留的压缩备份文件数量"
-msgstr "Number of compressed backups to keep"
-
-msgid "日志文件保留的天数"
-msgstr "Days to keep log files"
-
-msgid "是否压缩轮转产生的日志文件"
-msgstr "Compress rotated log files"
-
-msgid "Multicast 配置"
-msgstr "Multicast Config"
-
-msgid "组播 / FCC 配置"
+# Multicast config page labels
+msgid "Multicast / FCC Config"
 msgstr "Multicast / FCC Config"
 
-msgid "组播监听接口"
+msgid "Multicast Listen Interfaces"
 msgstr "Multicast Listen Interfaces"
 
-msgid "添加接口"
+msgid "Add Interface"
 msgstr "Add Interface"
 
-msgid "用于接收组播流量的网络接口列表，留空表示使用默认接口"
-msgstr "Network interfaces used to receive multicast traffic. Leave empty to use the default interface."
-
-msgid "多播重新加入间隔"
+msgid "Multicast Rejoin Interval"
 msgstr "Multicast Rejoin Interval"
 
-msgid "多播重新加入间隔时间，例如 10s。设置为 0s 表示禁用"
-msgstr "Multicast rejoin interval, for example 10s. Set to 0s to disable."
-
-msgid "FCC 类型"
+msgid "FCC Type"
 msgstr "FCC Type"
 
-msgid "电信/中兴/烽火"
+msgid "Telecom / ZTE / FiberHome"
 msgstr "Telecom / ZTE / FiberHome"
 
-msgid "华为"
+msgid "Huawei"
 msgstr "Huawei"
 
-msgid "选择 FCC 协议类型"
-msgstr "Select the FCC protocol type"
-
-msgid "FCC 缓存大小"
+msgid "FCC Cache Size"
 msgstr "FCC Cache Size"
 
-msgid "FCC 缓存的数据包数量"
-msgstr "Number of packets in the FCC cache"
-
-msgid "FCC 监听端口范围"
+msgid "FCC Listen Port Range"
 msgstr "FCC Listen Port Range"
 
-msgid "FCC 监听端口范围（最小值 - 最大值）"
-msgstr "FCC listen port range (min - max)"
-
-msgid "通用上游接口"
+msgid "Generic Upstream Interface"
 msgstr "Generic Upstream Interface"
 
-msgid "通用上游接口，用于多播和非 FCC 连接（可选）"
-msgstr "Generic upstream interface for multicast and non-FCC connections (optional)"
-
-msgid "FCC 专用上游接口"
+msgid "FCC Dedicated Upstream Interface"
 msgstr "FCC Dedicated Upstream Interface"
 
-msgid "FCC 专用上游接口，优先级高于通用接口。留空则使用通用接口"
-msgstr "Dedicated upstream interface for FCC. Higher priority than the generic interface. Leave empty to use the generic interface."
-
-msgid "删除"
+msgid "Delete"
 msgstr "Delete"
 
-msgid "保存成功！"
-msgstr "Saved successfully!"
+# Multicast config page descriptions
+msgid "Network interfaces used to receive multicast traffic. Leave empty to use the default interface."
+msgstr "Network interfaces used to receive multicast traffic. Leave empty to use the default interface."
 
-msgid "保存失败！"
-msgstr "Save failed!"
+msgid "Multicast rejoin interval, for example 10s. Set to 0s to disable."
+msgstr "Multicast rejoin interval, for example 10s. Set to 0s to disable."
+
+msgid "Select the FCC protocol type"
+msgstr "Select the FCC protocol type"
+
+msgid "Number of packets in the FCC cache"
+msgstr "Number of packets in the FCC cache"
+
+msgid "FCC listen port range (min - max)"
+msgstr "FCC listen port range (min - max)"
+
+msgid "Generic upstream interface for multicast and non-FCC connections (optional)"
+msgstr "Generic upstream interface for multicast and non-FCC connections (optional)"
+
+msgid "Dedicated upstream interface for FCC. Higher priority than the generic interface. Leave empty to use the generic interface."
+msgstr "Dedicated upstream interface for FCC. Higher priority than the generic interface. Leave empty to use the generic interface."
