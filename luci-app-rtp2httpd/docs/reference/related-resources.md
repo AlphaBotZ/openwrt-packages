@@ -36,10 +36,11 @@
 以下固件已经内置 rtp2httpd（或者可以在应用市场、官方源直接下载安装 rtp2httpd）。
 
 > [!IMPORTANT]
-> 固件为了保证稳定性，通常内置/上架的 rtp2httpd 版本比较老。如果你希望追新，建议使用 [官方支持的安装方式](../guide/installation.md) 来安装 rtp2httpd。
+> 固件为了保证稳定性，通常内置/上架的 rtp2httpd 版本落后于官方最新版。如果你希望追新，建议使用 [官方支持的安装方式](../guide/installation.md) 来安装 rtp2httpd。
 
 - [飞牛 fnOS](https://www.fnnas.com)（应用中心已上架 rtp2httpd）
 - [iStoreOS](https://site.istoreos.com)（iStore 已上架 rtp2httpd）
+- [懒猫微服](https://lazycat.cloud)（应用商店已上架 rtp2httpd）
 - [cooluc's OpenWrt](https://github.com/sbwml/builder)（已内置 rtp2httpd）
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)（已加入官方源）
 - [AutoBuildImmortalWrt](https://github.com/wukongdaily/AutoBuildImmortalWrt)（[store](https://github.com/wukongdaily/store) 已内置 rtp2httpd，轻松构建）
@@ -56,6 +57,12 @@
 Android 平台 IPTV 播放器，支持 M3U 播放列表、FCC 快速换台、EPG 电子节目单、时移回看等功能。
 
 目前唯一支持 rtp2httpd [视频快照](../guide/video-snapshot.md) 的播放器。
+
+#### APTV
+
+- 项目地址：<https://aptv.wegic.app>
+
+苹果生态里体验很突出的 IPTV M3U 播放器，覆盖 iPhone、iPad、Mac、Apple Vision、Apple TV、Apple Watch 等设备。支持 M3U 播放列表、EPG 电子节目单、iCloud 配置同步、实时预览、回看、多源配置、4K/HDR/HLG、画中画、AirPlay/DLNA 投屏等功能，并支持组播 FCC 快速换台优化。
 
 #### 源匣 SrcBox
 
@@ -74,11 +81,17 @@ Windows / macOS / Linux 跨平台 IPTV 播放器，此 fork 针对中国大陆 I
 - 4K/高清/标清画质策略，同名频道按质量优先排序
 - EPG 频道名称智能匹配与中文化
 
+#### IPTV 影视 iptvys
+
+- 项目地址：<https://github.com/yydewf/iptvys/>
+
+基于蜂蜜影视（TVBox）的定制影视播放器，支持通过 rtp2httpd 代理 RTSP 源。开启 RTSP 代理并配置 rtp2httpd 地址后，可播放 rtp2httpd 代理的 RTSP 点播节目，并支持获取节目时长、进度条拖动、快进快退等功能。
+
 ### IPTV 订阅和频道工具
 
-#### IPTV Checker
+#### 频道哨兵 Channel Sentinel
 
-- 项目地址：<https://github.com/CGG888/Iptv-Checker>
+- 项目地址：<https://github.com/CGG888/channel-sentinel>
 
 基于 Docker 的 IPTV 单播/组播批量扫描检测工具。主要功能：
 
@@ -99,6 +112,12 @@ Windows / macOS / Linux 跨平台 IPTV 播放器，此 fork 针对中国大陆 I
 - 台标模糊匹配，支持 tvbox 接口
 - 频道别名、正则表达式匹配，支持繁体中文
 - 定时更新数据、缓存支持（Memcached/Redis）
+
+#### IPTV Sniffer Web
+
+- 项目地址：<https://github.com/roninriddle/IPTV-Sniffer-Web>
+
+适用于 OpenWrt / iStoreOS / 飞牛 NAS / 其它 Linux Docker 宿主机的 IPTV 组播嗅探、运营商频道发现与 rtp2httpd 播放列表统一工作台。支持从机顶盒开机流量中解析频道表和 FCC 参数，也支持网页选择网卡实时嗅探组播流、识别编码/分辨率/截图/EPG，并导出直连 M3U、rtp2httpd 外部源 M3U、JSON、TXT、CSV 等格式。
 
 #### IPTV-channels（四川电信）
 
@@ -123,6 +142,12 @@ Windows / macOS / Linux 跨平台 IPTV 播放器，此 fork 针对中国大陆 I
 - 项目地址：<https://github.com/plsy1/iptv>
 
 山东联通 IPTV 播放列表，覆盖济南、青岛、烟台、潍坊等山东各地市的组播源，同时提供单播源（APTV、酷九、rtp2httpd 多种格式）。配套机顶盒登录鉴权模拟、EPG 节目单、RTSP 代理、数据抓取与 M3U 生成等工具。
+
+#### SDU-IPTV-PRO（山东 IPTV）
+
+- 项目地址：<https://github.com/sggc/SDU-IPTV-PRO>
+
+山东 IPTV 播放列表项目，汇集山东联通、山东移动、山东电信三大运营商的 IPTV 内网直播源，并按各地市用户收视习惯做本地化频道排序。提供通用版和各地市版 M3U，覆盖山东联通组播/单播、山东移动 HTTP/RTSP 单播、山东电信单播等来源，并配套聚合型 EPG。山东联通组播源可配合 rtp2httpd 转为 HTTP 流，并支持 FCC（快速频道切换）参数，起播与换台体验接近单播。
 
 #### Shanghai-IPTV（上海电信）
 
