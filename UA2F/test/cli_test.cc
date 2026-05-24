@@ -6,9 +6,10 @@ extern "C" {
 #include <cli.h>
 }
 
-class CLITest : public ::testing::Test {
+class CLIDeathTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        GTEST_FLAG_SET(death_test_style, "threadsafe");
         // Capture original uid for cleanup
         original_uid = geteuid();
     }
@@ -20,7 +21,9 @@ protected:
     uid_t original_uid;
 };
 
-TEST_F(CLITest, TryPrintInfoNoArgs) {
+// Keep these in a *DeathTest suite so GoogleTest runs EXPECT_EXIT tests before
+// cache tests start detached cleanup threads.
+TEST_F(CLIDeathTest, TryPrintInfoNoArgs) {
     char *argv[] = {(char*)"ua2f"};
     int argc = 1;
     
@@ -28,7 +31,7 @@ TEST_F(CLITest, TryPrintInfoNoArgs) {
     EXPECT_NO_THROW(try_print_info(argc, argv));
 }
 
-TEST_F(CLITest, TryPrintInfoVersion) {
+TEST_F(CLIDeathTest, TryPrintInfoVersion) {
     char *argv[] = {(char*)"ua2f", (char*)"--version"};
     int argc = 2;
     
@@ -37,7 +40,7 @@ TEST_F(CLITest, TryPrintInfoVersion) {
     EXPECT_EXIT(try_print_info(argc, argv), ::testing::ExitedWithCode(EXIT_SUCCESS), ".*");
 }
 
-TEST_F(CLITest, TryPrintInfoHelp) {
+TEST_F(CLIDeathTest, TryPrintInfoHelp) {
     char *argv[] = {(char*)"ua2f", (char*)"--help"};
     int argc = 2;
     
@@ -45,7 +48,7 @@ TEST_F(CLITest, TryPrintInfoHelp) {
     EXPECT_EXIT(try_print_info(argc, argv), ::testing::ExitedWithCode(EXIT_SUCCESS), ".*");
 }
 
-TEST_F(CLITest, TryPrintInfoUnknownOption) {
+TEST_F(CLIDeathTest, TryPrintInfoUnknownOption) {
     char *argv[] = {(char*)"ua2f", (char*)"--unknown"};
     int argc = 2;
     
@@ -53,7 +56,7 @@ TEST_F(CLITest, TryPrintInfoUnknownOption) {
     EXPECT_EXIT(try_print_info(argc, argv), ::testing::ExitedWithCode(EXIT_FAILURE), ".*");
 }
 
-TEST_F(CLITest, RequireRootWhenRoot) {
+TEST_F(CLIDeathTest, RequireRootWhenRoot) {
     if (geteuid() == 0) {
         // If we're actually root, this should not exit
         EXPECT_NO_THROW(require_root());
@@ -61,4 +64,20 @@ TEST_F(CLITest, RequireRootWhenRoot) {
         // If we're not root, this should exit with failure
         EXPECT_EXIT(require_root(), ::testing::ExitedWithCode(EXIT_FAILURE), ".*");
     }
+}
+
+TEST(CLIOptionsTest, ModeAndListenPortAreAvailableWithoutUci) {
+    cli_mode_set = false;
+    cli_mode = UA2F_MODE_NFQUEUE;
+    cli_listen_port_set = false;
+    cli_listen_port = UA2F_DEFAULT_PROXY_PORT;
+
+    char *argv[] = {(char *)"ua2f", (char *)"--mode", (char *)"TPROXY", (char *)"--listen-port", (char *)"12345"};
+    int argc = 5;
+
+    EXPECT_NO_THROW(try_print_info(argc, argv));
+    EXPECT_TRUE(cli_mode_set);
+    EXPECT_EQ(cli_mode, UA2F_MODE_TPROXY);
+    EXPECT_TRUE(cli_listen_port_set);
+    EXPECT_EQ(cli_listen_port, 12345);
 }
