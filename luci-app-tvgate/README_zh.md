@@ -28,7 +28,7 @@ TVGate 是一款高性能的本地网络资源转发与代理工具。它可以�
    opkg update
    opkg install curl ca-certificates unzip luci-compat luci luci-base
    opkg install libustream-openssl ca-bundle
-   opkg install  luci-app-tvgate_2.1.0_all.ipk
+   opkg install  luci-app-tvgate_2.1.1_all.ipk
    opkg install luci-i18n-tvgate-zh-cn_git-26.126.27721-5978e59_all.ipk
    ```
 
@@ -42,7 +42,7 @@ TVGate 是一款高性能的本地网络资源转发与代理工具。它可以�
    ```bash
    apk update
    apk add curl ca-certificates unzip luci-compat luci luci-base
-   apk add --allow-untrusted luci-app-tvgate-2.1.0-r1.apk
+   apk add --allow-untrusted luci-app-tvgate-2.1.1-r1.apk
    apk add --allow-untrusted luci-i18n-tvgate-zh-cn-26.126.27721~5978e59.apk
    ```
 
@@ -76,7 +76,18 @@ TVGate 是一款高性能的本地网络资源转发与代理工具。它可以�
 
 ## 支持的架构
 
-- x86_64
-- i686
-- aarch64 (ARM64)
-- armv7l (ARMv7)
+- x86_64 (amd64)
+- i686/i386/i486/i586 (386)
+- aarch64/arm64 (ARM64)
+- armv7l/armv7 (ARMv7)
+- armv6l/armv6 (ARMv6)
+- armv5l/armv5 (ARMv5)
+- loongarch64/loong64 (LoongArch)
+- mips64el (MIPS64 小端序)
+- mips64 (MIPS64)
+- mipsel/mipsle (MIPS 小端序)
+- mips (MIPS)
+- ppc64le (PowerPC 64 小端序)
+- ppc64 (PowerPC 64)
+- riscv64 (RISC-V 64)
+- s390x (IBM System z)
