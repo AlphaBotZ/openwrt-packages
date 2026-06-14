@@ -13,20 +13,21 @@ import { useLocale } from "../hooks/use-locale";
 import { usePlayerTranslation } from "../hooks/use-player-translation";
 import { useTheme } from "../hooks/use-theme";
 import { type EPGData, fillEPGGaps, getCurrentProgram, getEPGChannelId, loadEPG } from "../lib/epg-parser";
-import { buildCatchupSegments, parseM3U } from "../lib/m3u-parser";
+import { buildCatchupSegments, clampCatchupStartTime, parseM3U } from "../lib/m3u-parser";
 import {
-  getForce16x9,
   getLastChannelId,
   getLastSourceIndex,
   getMp2SoftDecode,
+  getSeamlessSwitch,
   getSidebarVisible,
-  saveForce16x9,
   saveLastChannelId,
   saveLastSourceIndex,
   saveMp2SoftDecode,
+  saveSeamlessSwitch,
   saveSidebarVisible,
 } from "../lib/player-storage";
 import type { PlayerSegment } from "../mpegts";
+import { NEAR_LIVE_EDGE_MS } from "../mpegts/player/wall-clock";
 import type { Channel, M3UMetadata } from "../types/player";
 
 function PlayerPage() {
@@ -46,7 +47,7 @@ function PlayerPage() {
   const [sidebarView, setSidebarView] = useState<"channels" | "epg">("channels");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  const [force16x9, setForce16x9] = useState(() => getForce16x9());
+  const [seamlessSwitch, setSeamlessSwitch] = useState(() => getSeamlessSwitch());
   const [mp2SoftDecode, setMp2SoftDecode] = useState(() => getMp2SoftDecode());
   const pageContainerRef = useRef<HTMLDivElement>(null);
 
@@ -54,6 +55,8 @@ function PlayerPage() {
   // For live mode: null (no seeking)
   // For catchup mode: the time user seeked to (start of catchup stream)
   const [streamStartTime, setStreamStartTime] = useState<Date>(() => new Date());
+  /** Whether the latest seek targets the session live edge (vs catchup). */
+  const [seekAtLiveEdge, setSeekAtLiveEdge] = useState(true);
 
   // Track current video playback time in seconds (relative to stream start)
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -91,11 +94,15 @@ function PlayerPage() {
   useEffect(() => {
     if (!activeSource) return;
 
-    const now = new Date();
-
-    if (streamStartTime.getTime() > now.getTime() - 3000) {
-      setPlaybackSegments([{ url: activeSource.url, duration: 0 }]);
+    if (seekAtLiveEdge) {
       setPlayMode("live");
+      setPlaybackSegments((prev) => {
+        const next: PlayerSegment[] = [{ url: activeSource.url, duration: 0 }];
+        if (prev.length === 1 && prev[0].url === next[0].url) {
+          return prev;
+        }
+        return next;
+      });
       return;
     }
 
@@ -116,28 +123,31 @@ function PlayerPage() {
     }
 
     // No source supports catchup, fall back to live
+    setSeekAtLiveEdge(true);
     setStreamStartTime(new Date());
-  }, [currentChannel, activeSource, activeSourceIndex, streamStartTime]);
+  }, [currentChannel, activeSource, activeSourceIndex, streamStartTime, seekAtLiveEdge]);
 
-  const handleVideoSeek = useCallback(
-    (seekTime: Date) => {
-      const now = new Date();
-      if (seekTime.getTime() > now.getTime() - 10 * 1000) {
-        if (streamStartTime < seekTime) {
-          setStreamStartTime(now);
-        } else {
-          setStreamStartTime(new Date(now.getTime() - 10 * 1000));
-        }
-      } else {
-        setStreamStartTime(seekTime);
-      }
+  const handleVideoSeek = useCallback((seekTime: Date, goingLive: boolean) => {
+    setSeekAtLiveEdge(goingLive);
+    if (goingLive) {
+      setStreamStartTime(new Date());
+    } else {
+      setStreamStartTime(clampCatchupStartTime(seekTime));
+    }
+  }, []);
+
+  const handleProgramSelect = useCallback(
+    (programStart: Date, programEnd: Date) => {
+      const goingLive = programEnd.getTime() >= Date.now() - NEAR_LIVE_EDGE_MS;
+      handleVideoSeek(programStart, goingLive);
     },
-    [streamStartTime],
+    [handleVideoSeek],
   );
 
   const handleSourceChange = useCallback(
     (sourceIndex: number) => {
       if (playMode === "live") {
+        setSeekAtLiveEdge(true);
         setStreamStartTime(new Date());
       } else {
         // Preserve current playback position when switching source in catchup mode
@@ -158,6 +168,7 @@ function PlayerPage() {
     setCurrentChannel(channel);
     const lastSource = getLastSourceIndex(channel.id);
     setActiveSourceIndex(lastSource < channel.sources.length ? lastSource : 0);
+    setSeekAtLiveEdge(true);
     setStreamStartTime(new Date());
   }, []);
 
@@ -310,9 +321,9 @@ function PlayerPage() {
     }
   }, []);
 
-  const handleForce16x9Change = useCallback((enabled: boolean) => {
-    setForce16x9(enabled);
-    saveForce16x9(enabled);
+  const handleSeamlessSwitchChange = useCallback((enabled: boolean) => {
+    setSeamlessSwitch(enabled);
+    saveSeamlessSwitch(enabled);
   }, []);
 
   const handleMp2SoftDecodeChange = useCallback((enabled: boolean) => {
@@ -336,14 +347,23 @@ function PlayerPage() {
           onLocaleChange={setLocale}
           theme={theme}
           onThemeChange={setTheme}
-          force16x9={force16x9}
-          onForce16x9Change={handleForce16x9Change}
+          seamlessSwitch={seamlessSwitch}
+          onSeamlessSwitchChange={handleSeamlessSwitchChange}
           mp2SoftDecode={mp2SoftDecode}
           onMp2SoftDecodeChange={handleMp2SoftDecodeChange}
         />
       </div>
     );
-  }, [locale, theme, force16x9, mp2SoftDecode, setLocale, setTheme, handleForce16x9Change, handleMp2SoftDecodeChange]);
+  }, [
+    locale,
+    theme,
+    seamlessSwitch,
+    mp2SoftDecode,
+    setLocale,
+    setTheme,
+    handleSeamlessSwitchChange,
+    handleMp2SoftDecodeChange,
+  ]);
 
   // Main UI content
   const mainContent = (
@@ -362,6 +382,7 @@ function PlayerPage() {
             locale={locale}
             currentProgram={currentVideoProgram}
             onSeek={handleVideoSeek}
+            onStreamStartTimeChange={setStreamStartTime}
             streamStartTime={streamStartTime}
             currentVideoTime={currentVideoTime}
             onCurrentVideoTimeChange={handleCurrentVideoTimeChange}
@@ -369,7 +390,7 @@ function PlayerPage() {
             showSidebar={showSidebar}
             onToggleSidebar={handleToggleSidebar}
             onFullscreenToggle={handleFullscreenToggle}
-            force16x9={force16x9}
+            seamlessSwitch={seamlessSwitch}
             mp2SoftDecode={mp2SoftDecode}
             activeSourceIndex={activeSourceIndex}
             onSourceChange={handleSourceChange}
@@ -435,7 +456,7 @@ function PlayerPage() {
               <EPGView
                 channelId={currentChannel ? getEPGChannelId(currentChannel, epgData) : null}
                 epgData={epgData}
-                onProgramSelect={handleVideoSeek}
+                onProgramSelect={handleProgramSelect}
                 locale={locale}
                 supportsCatchup={!!currentChannel?.sources.some((s) => s.catchup && s.catchupSource)}
                 currentPlayingProgram={currentVideoProgram}
