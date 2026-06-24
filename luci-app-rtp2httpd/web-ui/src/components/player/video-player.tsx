@@ -44,7 +44,6 @@ interface VideoPlayerProps {
   onToggleSidebar?: () => void;
   onFullscreenToggle?: () => void;
   seamlessSwitch?: boolean;
-  mp2SoftDecode?: boolean;
   activeSourceIndex?: number;
   onSourceChange?: (index: number) => void;
   onPlaybackStarted?: () => void;
@@ -63,6 +62,16 @@ type PendingTransition = {
 
 function otherSlot(id: SlotId): SlotId {
   return id === "a" ? "b" : "a";
+}
+
+function isInterruptedPlayError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const message = err.message.toLowerCase();
+  return err.name === "AbortError" && (message.includes("interrupted") || message.includes("new load request"));
+}
+
+function ignoreInterruptedPlayError(err: unknown): void {
+  if (!isInterruptedPlayError(err)) throw err;
 }
 
 function PlayerTopLeftOverlay({
@@ -137,7 +146,6 @@ export function VideoPlayer({
   onToggleSidebar,
   onFullscreenToggle,
   seamlessSwitch = true,
-  mp2SoftDecode = false,
   activeSourceIndex = 0,
   onSourceChange,
   onPlaybackStarted,
@@ -265,7 +273,7 @@ export function VideoPlayer({
       userPausedRef.current = false;
       if (playMode === "live") {
         goLiveToSessionEdge();
-        video?.play();
+        video?.play()?.catch(ignoreInterruptedPlayError);
         return;
       }
       shouldAutoPlayRef.current = !video?.paused;
@@ -293,7 +301,7 @@ export function VideoPlayer({
     if (video) {
       if (video.paused) {
         userPausedRef.current = false;
-        video.play();
+        video.play().catch(ignoreInterruptedPlayError);
       } else {
         userPausedRef.current = true;
         video.pause();
@@ -541,7 +549,7 @@ export function VideoPlayer({
     setNeedsUserInteraction(true);
   });
 
-  const createPlayerForSlot = useEffectEvent((slotId: SlotId, useMp2SoftDecode = mp2SoftDecode): Player | null => {
+  const createPlayerForSlot = useEffectEvent((slotId: SlotId): Player | null => {
     const video = slotVideoRef(slotId).current;
     if (!video || !isSupported()) return null;
 
@@ -552,7 +560,7 @@ export function VideoPlayer({
     video.muted = isMuted;
 
     const p = createPlayer(video, {
-      wasmDecoders: useMp2SoftDecode ? { mp2: mp2WasmUrl } : {},
+      wasmDecoders: { mp2: mp2WasmUrl },
     });
     p.on("error", (e) => {
       if (slotPlayerRef(slotId).current === p) {
@@ -581,6 +589,7 @@ export function VideoPlayer({
       if (playPromise) {
         playPromise
           .catch((err: Error) => {
+            if (isInterruptedPlayError(err)) return;
             if (slotId && !isPendingTransitionExpected(slotId, expected)) return;
             if (err.name === "NotAllowedError" || err.message.includes("user didn't interact")) {
               setNeedsUserInteraction(true);
@@ -618,9 +627,10 @@ export function VideoPlayer({
       navigator.mediaSession.metadata = null;
       return;
     }
+    const groupLabel = channel.groups.join(" / ");
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentProgram?.title || channel.name,
-      artist: currentProgram?.title ? channel.name : channel.group,
+      artist: currentProgram?.title ? channel.name : groupLabel,
       artwork: channel.logo ? [{ src: channel.logo }] : [],
     });
   }, [channel, currentProgram]);
@@ -636,7 +646,7 @@ export function VideoPlayer({
     const videoForActiveSlot = () => (activeSlotIdRef.current === "a" ? slotAVideoRef : slotBVideoRef).current;
     navigator.mediaSession.setActionHandler("play", () => {
       userPausedRef.current = false;
-      videoForActiveSlot()?.play();
+      videoForActiveSlot()?.play()?.catch(ignoreInterruptedPlayError);
     });
     navigator.mediaSession.setActionHandler("pause", () => {
       userPausedRef.current = true;
@@ -650,9 +660,11 @@ export function VideoPlayer({
 
   // Load segments whenever they change (channel/source switch, seek, retry — all go through here)
   const handleLoadSegments = useEffectEvent((newSegments: PlayerSegment[]) => {
+    if (!newSegments.length) return;
+
     const activeId = getActiveSlotId();
-    const activePlayer = slotPlayerRef(activeId).current;
-    if (!newSegments.length || !activePlayer) return;
+    const activePlayer = slotPlayerRef(activeId).current ?? createPlayerForSlot(activeId);
+    if (!activePlayer) return;
 
     console.log("Loading segments...");
 
@@ -723,10 +735,6 @@ export function VideoPlayer({
     handleLoadSegments(newSegments);
   });
 
-  const reloadAfterDecoderChange = useEffectEvent(() => {
-    handleLoadSegments(segments);
-  });
-
   useEffect(() => {
     return () => {
       cancelPendingTransition();
@@ -734,37 +742,6 @@ export function VideoPlayer({
       destroySlot("b");
     };
   }, []);
-
-  // Recreate decoder pipeline when mp2SoftDecode toggles
-  useEffect(() => {
-    if (!slotAVideoRef.current || !isSupported()) return;
-    const hadPlayer = slotAPlayerRef.current !== null || slotBPlayerRef.current !== null;
-    const activeVideo = (activeSlotIdRef.current === "a" ? slotAVideoRef : slotBVideoRef).current;
-    const shouldResumeAfterRecreate = activeVideo
-      ? !activeVideo.paused && !activeVideo.ended
-      : shouldAutoPlayRef.current;
-
-    cancelPendingTransition();
-    transitionGenRef.current++;
-    if (hadPlayer) {
-      shouldAutoPlayRef.current = shouldResumeAfterRecreate;
-      userPausedRef.current = !shouldResumeAfterRecreate;
-      setNeedsUserInteraction(false);
-    }
-    wallClockCalibratedRef.current = false;
-    setLiveSessionAnchor(null);
-    destroySlot("a");
-    destroySlot("b");
-    hasStartedPlaybackRef.current = false;
-    activeSlotIdRef.current = "a";
-    setVisibleSlotId("a");
-
-    createPlayerForSlot("a", mp2SoftDecode);
-
-    if (hadPlayer) {
-      reloadAfterDecoderChange();
-    }
-  }, [mp2SoftDecode]);
 
   useEffect(() => {
     if (!seamlessSwitch) {
@@ -786,9 +763,6 @@ export function VideoPlayer({
   }, [liveSessionAnchor]);
 
   useEffect(() => {
-    const activeId = activeSlotIdRef.current;
-    const player = (activeId === "a" ? slotAPlayerRef : slotBPlayerRef).current;
-    if (!player) return;
     if (skipNextSegmentsLoadRef.current) {
       skipNextSegmentsLoadRef.current = false;
       return;
@@ -924,6 +898,7 @@ export function VideoPlayer({
 
     if (video.paused) {
       video.play()?.catch((err: Error) => {
+        if (isInterruptedPlayError(err)) return;
         if (err.name === "NotAllowedError") {
           setNeedsUserInteraction(true);
         }
@@ -1178,6 +1153,7 @@ export function VideoPlayer({
     setIsPlaying(true);
     userPausedRef.current = false;
     video.play()?.catch((err: Error) => {
+      if (isInterruptedPlayError(err)) return;
       console.error("Play error after user interaction:", err);
       setError(`${t("failedToPlay")}: ${err.message}`);
       onError?.(`${t("failedToPlay")}: ${err.message}`);
@@ -1280,10 +1256,12 @@ export function VideoPlayer({
                     {digitBuffer || channel.id}
                   </span>
                   <h2 className="text-xs md:text-base font-bold text-white truncate">{channel.name}</h2>
-                  {channel.group && (
+                  {channel.groups.length > 0 && (
                     <>
                       <span className="text-xs md:text-sm text-white/50 hidden sm:inline">·</span>
-                      <div className="text-xs md:text-sm text-white/70 truncate hidden sm:block">{channel.group}</div>
+                      <div className="text-xs md:text-sm text-white/70 truncate hidden sm:block">
+                        {channel.groups.join(" / ")}
+                      </div>
                     </>
                   )}
                 </div>
