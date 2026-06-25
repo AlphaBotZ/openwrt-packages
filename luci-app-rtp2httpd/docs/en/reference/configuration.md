@@ -16,15 +16,17 @@ rtp2httpd [options]
 
 ### Network Configuration
 
-- `-l, --listen [address:]port` - Bind address and port (default: \*:5140)
+- `-l, --listen [address:]port|/path/to/rtp2httpd.sock` - Bind a TCP listen address/port, or listen on a Unix domain socket (default: \*:5140)
 - `-m, --maxclients <number>` - Maximum concurrent clients (default: 5)
 - `-w, --workers <number>` - Number of worker processes (default: 1)
 
-`--listen` can be specified multiple times to listen on multiple addresses or ports:
+`--listen` can be specified multiple times to listen on multiple TCP addresses/ports or Unix sockets:
 
 ```bash
-rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
+rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140' --listen /var/run/rtp2httpd.sock
 ```
+
+Unix socket listen paths must be absolute and must not contain whitespace. At startup, if the same path already contains a socket file, rtp2httpd first probes whether the socket is still in use: if another process is listening on that path, startup is rejected; only confirmed stale socket files are removed automatically. If the path is a regular file, directory, or symbolic link, startup is rejected to avoid deleting user data. When any Unix socket listener is enabled, `zerocopy-on-send` is disabled globally.
 
 #### Upstream Network Interface Configuration
 
@@ -69,6 +71,8 @@ rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
 
 - `-v, --verbose` - Logging verbosity (0=FATAL, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)
 - `-q, --quiet` - Show only fatal errors
+- `--access-log <path>` - Write access logs to the specified file (default: disabled)
+- `--log-format <format>` - Access log format using nginx-style `$variable` placeholders. See [Access Logging](/en/guide/access-log)
 
 ### Security Control
 
@@ -79,6 +83,8 @@ rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
   - Set to `*` to allow all origins, or specify a domain (e.g., `https://example.com`)
 - `-s, --status-page-path <path>` - Status page and API root path (default: /status)
 - `-p, --player-page-path <path>` - Built-in player page path (default: /player)
+- `--app-path-prefix <path>` - Public access prefix for all HTTP resources (default: none)
+- `--use-relative-path-in-m3u` - Use root-relative URLs when generating playlist.m3u or rewriting M3U through the HTTP proxy (default: disabled)
 
 ### Compatibility
 
@@ -117,6 +123,13 @@ Configuration file path: `/etc/rtp2httpd.conf`. Lines starting with `#` or `;` a
 # Logging verbosity: 0=FATAL 1=ERROR 2=WARN 3=INFO 4=DEBUG
 verbosity = 3
 
+# Access log file path (empty or unset means disabled)
+access-log = /var/log/rtp2httpd/access.log
+
+# Access log format (optional, nginx-style $variables)
+# Default: $client_addr [$time_iso8601] "$service_url" $service_type "$upstream_url"
+log-format = $client_addr [$time_iso8601] "$service_url" $service_type "$upstream_url"
+
 # Maximum concurrent clients
 maxclients = 20
 
@@ -141,11 +154,23 @@ xff = no
 # http://server:5140/player?r2h-token=your-secret-token
 r2h-token = your-secret-token-here
 
-# Status page path (default: /status)
+# Status page app path (default: /status; mounted under app-path-prefix when configured)
 status-page-path = /status
 
-# Player page path (default: /player)
+# Player page app path (default: /player; mounted under app-path-prefix when configured)
 player-page-path = /player
+
+# Public access prefix for all HTTP resources (default: none)
+# After this is set, the status page, player, static assets,
+# playlist.m3u, epg.xml, and stream URLs are all served under this
+# prefix, for example /app/rtp2httpd/player.
+app-path-prefix = /app/rtp2httpd
+
+# Use root-relative paths in M3U output (default: no)
+# When enabled, playlist.m3u and M3U rewritten through the HTTP proxy
+# omit the http://host prefix and keep only paths starting with / or app-path-prefix,
+# for example /app/rtp2httpd/rtp/...
+use-relative-path-in-m3u = no
 
 # Upstream network interface configuration (optional)
 #
@@ -249,6 +274,9 @@ ffmpeg-args = -hwaccel none
 # Listen on an IPv6 address (brackets optional)
 2001:db8::1 5140
 
+# Listen on a Unix domain socket (path must be absolute)
+/var/run/rtp2httpd.sock
+
 # Multiple listen addresses are supported
 
 # The [services] section can contain M3U playlists starting with #EXTM3U
@@ -260,6 +288,8 @@ rtp://239.253.64.120:5140
 #EXTINF:-1 tvg-id="CCTV2" tvg-name="CCTV2" group-title="CCTV",CCTV-2
 rtp://239.253.64.121:5140
 ```
+
+For how to enable access logging, configure placeholders, and use logrotate, see [Access Logging](/en/guide/access-log).
 
 ## Runtime Configuration Management
 
@@ -288,6 +318,7 @@ kill -USR1 12345
 - If `[bind]` listen addresses change, the supervisor sends `SIGTERM` to all workers and respawns them to apply the new listen addresses
 - If the `workers` count changes, the supervisor automatically adds or removes worker processes
 - For other configuration changes, the supervisor forwards `SIGHUP` to each worker, which applies them at runtime
+- Workers reopen the [access log](/en/guide/access-log) file during reload, which helps with logrotate
 - If the config file fails to parse, the old configuration is kept and existing connections are not interrupted
 
 > [!NOTE]

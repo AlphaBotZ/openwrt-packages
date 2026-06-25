@@ -110,6 +110,7 @@ const char *get_upstream_interface_for_http(const char *override);
 /**
  * Build base URL for proxy based on request headers and config
  * Priority: XFF headers (if enabled) > Host header > get_server_address()
+ * When use-relative-path-in-m3u is enabled, returns a root-relative base path.
  *
  * @param host_header HTTP Host header (can be NULL)
  * @param x_forwarded_host X-Forwarded-Host header (can be NULL)
@@ -165,6 +166,34 @@ int format_host_for_url(const char *host, char *out, size_t out_size);
  * @return 0 on success, -1 if the output buffer is too small
  */
 int format_host_port_for_url(const char *host, int port, int default_port, char *out, size_t out_size);
+
+/**
+ * Calculate the escaped length of a string when encoded as JSON string content.
+ * The returned size does not include the terminating NUL byte.
+ *
+ * @param value Input string (may be NULL)
+ * @return Escaped string length in bytes
+ */
+size_t json_escaped_len(const char *value);
+
+/**
+ * Escape a string for use inside JSON string quotes.
+ *
+ * @param value Input string (may be NULL)
+ * @return malloc'd escaped string (caller must free), or NULL on allocation error
+ */
+char *json_escape_string(const char *value);
+
+/**
+ * Escape a string for JSON into a fixed-size output buffer. The output is
+ * always NUL-terminated when out_size is greater than zero. If the buffer is
+ * too small, output is truncated at a complete escape sequence boundary.
+ *
+ * @param value Input string (may be NULL)
+ * @param out Output buffer
+ * @param out_size Output buffer size
+ */
+void json_escape_string_to_buffer(const char *value, char *out, size_t out_size);
 
 /**
  * Parse a "host[:port]" string supporting "[IPv6]:port", bracketed and bare

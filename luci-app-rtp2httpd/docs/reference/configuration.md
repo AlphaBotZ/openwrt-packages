@@ -16,15 +16,17 @@ rtp2httpd [选项]
 
 ### 网络配置
 
-- `-l, --listen [地址:]端口` - 绑定监听地址和端口 (默认: \*:5140)
+- `-l, --listen [地址:]端口|/path/to/rtp2httpd.sock` - 绑定 TCP 监听地址/端口，或监听 Unix domain socket (默认: \*:5140)
 - `-m, --maxclients <数量>` - 最大并发客户端数 (默认: 5)
 - `-w, --workers <数量>` - 工作进程数 (默认: 1)
 
-`--listen` 可以重复指定，用于同时监听多个地址或端口：
+`--listen` 可以重复指定，用于同时监听多个 TCP 地址/端口或 Unix socket：
 
 ```bash
-rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
+rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140' --listen /var/run/rtp2httpd.sock
 ```
+
+Unix socket 监听路径必须是绝对路径，且路径中不能包含空白字符。启动时如果同路径已存在 socket 文件，rtp2httpd 会先探测该 socket 是否仍在使用：如果已有进程正在监听该路径，则拒绝启动；只有确认是残留 socket 文件时才会自动清理。如果同路径是普通文件、目录或符号链接，则会拒绝启动以避免误删数据。启用任意 Unix socket 监听时，`zerocopy-on-send` 会被全局关闭。
 
 #### 上游网络接口配置
 
@@ -69,6 +71,8 @@ rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
 
 - `-v, --verbose` - 日志详细程度 (0=FATAL, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)
 - `-q, --quiet` - 仅显示致命错误
+- `--access-log <路径>` - 将访问日志写入指定文件 (默认: 禁用)
+- `--log-format <格式>` - 访问日志格式，使用类似 nginx 的 `$变量` 占位符，详见 [访问日志](../guide/access-log.md)
 
 ### 安全控制
 
@@ -79,6 +83,8 @@ rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
   - 设为 `*` 允许所有来源，或指定具体域名（如 `https://example.com`）
 - `-s, --status-page-path <路径>` - 状态页面与 API 根路径 (默认: /status)
 - `-p, --player-page-path <路径>` - 内置播放器页面路径 (默认: /player)
+- `--app-path-prefix <路径>` - 所有 HTTP 资源的公开访问前缀 (默认: 无)
+- `--use-relative-path-in-m3u` - 生成 playlist.m3u 或 HTTP 代理改写 M3U 时使用站点根相对 URL (默认: 关闭)
 
 ### 兼容性
 
@@ -117,6 +123,13 @@ rtp2httpd --listen 5140 --listen 192.168.1.1:8081 --listen '[::1]:5140'
 # 日志详细程度: 0=FATAL 1=ERROR 2=WARN 3=INFO 4=DEBUG
 verbosity = 3
 
+# 访问日志文件路径（留空或不配置时禁用）
+access-log = /var/log/rtp2httpd/access.log
+
+# 访问日志格式（可选，nginx 风格 $变量）
+# 默认: $client_addr [$time_iso8601] "$service_url" $service_type "$upstream_url"
+log-format = $client_addr [$time_iso8601] "$service_url" $service_type "$upstream_url"
+
 # 最大并发客户端数
 maxclients = 20
 
@@ -141,11 +154,21 @@ xff = no
 # http://server:5140/player?r2h-token=your-secret-token
 r2h-token = your-secret-token-here
 
-# 状态页路径（默认: /status）
+# 状态页应用内路径（默认: /status；配置 app-path-prefix 时会挂载在该前缀下）
 status-page-path = /status
 
-# 播放器页路径（默认: /player）
+# 播放器页应用内路径（默认: /player；配置 app-path-prefix 时会挂载在该前缀下）
 player-page-path = /player
+
+# 所有 HTTP 资源的公开访问前缀（默认: 无）
+# 设置后，状态页、播放器、静态资源、playlist.m3u、epg.xml 和流媒体 URL
+# 都会在此前缀下提供，例如 /app/rtp2httpd/player。
+app-path-prefix = /app/rtp2httpd
+
+# M3U 输出使用站点根相对路径（默认: no）
+# 开启后，playlist.m3u 和 HTTP 代理改写后的 M3U 中不会包含 http://host 前缀，
+# 只保留 / 或 app-path-prefix 开头的路径，例如 /app/rtp2httpd/rtp/...
+use-relative-path-in-m3u = no
 
 # 上游网络接口配置 (可选)
 #
@@ -249,6 +272,9 @@ ffmpeg-args = -hwaccel none
 # 监听 IPv6 地址（可省略方括号）
 2001:db8::1 5140
 
+# 监听 Unix domain socket（路径必须是绝对路径）
+/var/run/rtp2httpd.sock
+
 # 支持多个监听地址
 
 # [services] 内可以直接编写以 #EXTM3U 开头的 m3u 节目清单
@@ -260,6 +286,8 @@ rtp://239.253.64.120:5140
 #EXTINF:-1 tvg-id="CCTV2" tvg-name="CCTV2" group-title="央视",CCTV-2
 rtp://239.253.64.121:5140
 ```
+
+访问日志的启用方式、格式占位符和 logrotate 配置见 [访问日志](../guide/access-log.md)。
 
 ## 运行时配置管理
 
@@ -288,6 +316,7 @@ kill -USR1 12345
 - 若 `[bind]` 监听地址发生变化，supervisor 会向所有工作进程发送 `SIGTERM` 并重新拉起，以应用新的监听地址
 - 若 `workers` 数量发生变化，supervisor 会自动增减工作进程
 - 其他配置变更会转发 `SIGHUP` 给各工作进程，由工作进程在运行时应用
+- 工作进程会在重载时重新打开 [访问日志](../guide/access-log.md) 文件，便于配合 logrotate
 - 若配置文件解析失败，保留旧配置，不会中断现有连接
 
 > [!NOTE]

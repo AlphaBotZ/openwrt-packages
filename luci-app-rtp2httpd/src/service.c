@@ -1246,7 +1246,7 @@ service_t *service_create_from_http_url(const char *http_url) {
   return result;
 }
 
-service_t *service_create_from_udpxy_url(char *url) {
+service_t *service_create_from_udpxy_url(const char *url) {
   char working_url[HTTP_URL_BUFFER_SIZE];
   size_t url_len;
 
@@ -1642,9 +1642,10 @@ service_t *service_create_from_rtp_url(const char *http_url) {
   {
     char *qstart = strchr(url_part, '?');
     service_extract_ifname_params(qstart, &result->ifname, &result->ifname_fcc);
+    service_strip_query_param(qstart, "r2h-token");
   }
 
-  /* Build and store full RTP URL (rtp://) - r2h-ifname already stripped */
+  /* Build and store full RTP URL (rtp://) - r2h-* auth/control params stripped */
   char rtp_url[HTTP_URL_BUFFER_SIZE];
   if (strlen(url_part) + 6 >= sizeof(rtp_url)) {
     logger(LOG_ERROR, "RTP URL too long: %zu bytes", strlen(url_part) + 6);
@@ -2035,6 +2036,24 @@ cleanup_error:
   return NULL;
 }
 
+service_t *service_clone_list(service_t *head) {
+  service_t *cloned_head = NULL;
+  service_t **tail = &cloned_head;
+
+  for (service_t *current = head; current; current = current->next) {
+    service_t *cloned = service_clone(current);
+    if (!cloned) {
+      service_free_list(cloned_head);
+      return NULL;
+    }
+
+    *tail = cloned;
+    tail = &cloned->next;
+  }
+
+  return cloned_head;
+}
+
 void service_free(service_t *service) {
   if (!service) {
     return;
@@ -2128,6 +2147,28 @@ void service_free(service_t *service) {
 
   /* Free the service structure itself */
   free(service);
+}
+
+void service_free_list(service_t *head) {
+  service_t *current;
+
+  while (head) {
+    current = head;
+    head = head->next;
+    service_free(current);
+  }
+}
+
+service_t *service_clone_all(void) { return service_clone_list(services); }
+
+void service_replace_all(service_t *new_services) {
+  service_free_all();
+  services = new_services;
+
+  service_hashmap_init();
+  for (service_t *current = services; current; current = current->next) {
+    service_hashmap_add(current);
+  }
 }
 
 void service_free_external(void) {

@@ -20,6 +20,18 @@ msgstr ""
 msgid "Advanced Interface Settings"
 msgstr "高级接口设置"
 
+#: htdocs/luci-static/resources/view/rtp2httpd.js
+msgid "App Path Prefix"
+msgstr "应用路径前缀"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:746
+msgid "Access Log Format"
+msgstr "访问日志格式"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:723
+msgid "Access Log Path"
+msgstr "访问日志路径"
+
 #: htdocs/luci-static/resources/view/rtp2httpd.js:307
 msgid "Auto restart after crash"
 msgstr "程序崩溃后自动重启"
@@ -39,6 +51,15 @@ msgstr "CORS 允许的源"
 #: htdocs/luci-static/resources/view/rtp2httpd.js:326
 msgid "Config File Content"
 msgstr "配置文件内容"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:748
+msgid ""
+"Nginx-style access log format. Empty uses the default format. Supported "
+"variables include $client_addr, $time_iso8601, $service_url, $service_type "
+"and $upstream_url."
+msgstr ""
+"Nginx 风格的访问日志格式。留空则使用默认格式。支持的变量包括 $client_addr、"
+"$time_iso8601、$service_url、$service_type 和 $upstream_url。"
 
 #: htdocs/luci-static/resources/view/rtp2httpd.js:424
 msgid "Configure separate interfaces for multicast, FCC and RTSP"
@@ -122,10 +143,11 @@ msgstr "HTTP 代理 User-Agent"
 #: htdocs/luci-static/resources/view/rtp2httpd.js:361
 msgid ""
 "HTTP listen addresses. Use a bare port for all addresses (e.g., 5140), "
-"address:port for IPv4/hostnames, or [IPv6]:port."
+"address:port for IPv4/hostnames, [IPv6]:port, or an absolute Unix socket "
+"path."
 msgstr ""
 "HTTP 监听地址。使用裸端口表示监听所有地址（例如：5140），IPv4/主机名使用 "
-"address:port，IPv6 使用 [IPv6]:port。"
+"address:port，IPv6 使用 [IPv6]:port，也可以使用 Unix socket 绝对路径。"
 
 #: htdocs/luci-static/resources/view/rtp2httpd.js:695
 msgid "Hostname"
@@ -264,6 +286,18 @@ msgstr "播放器页面路径"
 msgid "Please configure External M3U URL first"
 msgstr "请先配置外部 M3U URL"
 
+#: htdocs/luci-static/resources/view/rtp2httpd.js
+msgid "Public mount path prefix for all rtp2httpd HTTP resources, for example /app/rtp2httpd."
+msgstr "所有 rtp2httpd HTTP 资源的公开挂载路径前缀，例如 /app/rtp2httpd。"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:760
+msgid "Use Relative Paths in M3U"
+msgstr "M3U 使用相对路径"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:762
+msgid "When enabled, generated and rewritten M3U playlists omit the http://host prefix and use root-relative paths."
+msgstr "启用后，生成和改写后的 M3U 播放列表会省略 http://host 前缀，并使用站点根相对路径。"
+
 #: htdocs/luci-static/resources/view/rtp2httpd.js:706
 msgid "R2H Token"
 msgstr "HTTP 请求认证令牌"
@@ -356,11 +390,11 @@ msgstr "使用配置文件而不是单独的选项"
 
 #: htdocs/luci-static/resources/view/rtp2httpd.js:98
 msgid ""
-"Use port, address:port, hostname:port, or [IPv6]:port, for example 5140 or "
-"192.168.1.1:8081."
+"Use port, address:port, hostname:port, [IPv6]:port, or an absolute Unix "
+"socket path, for example 5140, 192.168.1.1:8081, or /var/run/rtp2httpd.sock."
 msgstr ""
-"请使用端口、address:port、hostname:port 或 [IPv6]:port 格式，例如 5140 或 "
-"192.168.1.1:8081。"
+"请使用端口、address:port、hostname:port、[IPv6]:port 或 Unix socket 绝对路径，"
+"例如 5140、192.168.1.1:8081 或 /var/run/rtp2httpd.sock。"
 
 #: htdocs/luci-static/resources/view/rtp2httpd.js:753
 msgid ""
@@ -400,6 +434,11 @@ msgstr ""
 "启用后，将使用 HTTP X-Forwarded-For 头作为客户端地址，用于显示在状态面板上。"
 "并接受 X-Forwarded-Host / X-Forwarded-Proto 头作为 playlist.m3u 中的地址前"
 "缀。建议仅在使用反向代理时启用。"
+
+#: htdocs/luci-static/resources/view/rtp2httpd.js:725
+msgid ""
+"Write one access log line for each media request. Leave empty to disable access logging."
+msgstr "为每个媒体请求写入一行访问日志。留空则禁用访问日志。"
 
 #: htdocs/luci-static/resources/view/rtp2httpd.js:510
 msgid "Workers"

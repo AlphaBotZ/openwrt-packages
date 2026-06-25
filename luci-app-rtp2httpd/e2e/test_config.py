@@ -104,6 +104,14 @@ def _assert_player_page_path(port: int, expected_path: str):
         assert status2 == 404
 
 
+def _assert_app_path_prefix(port: int, expected_prefix: str):
+    normalized = "/" + expected_prefix.strip("/")
+    status, _, _ = http_get("127.0.0.1", port, f"{normalized}/status")
+    assert status == 200
+    status2, _, _ = http_get("127.0.0.1", port, "/status")
+    assert status2 == 404
+
+
 def _assert_hostname(port: int, expected_hosts: tuple[str, str]):
     allowed_host, rejected_host = expected_hosts
 
@@ -146,6 +154,19 @@ def _assert_xff_enabled(port: int, expected_host: str):
     )
     assert status == 200
     assert expected_host in body.decode()
+
+
+def _assert_use_relative_path_in_m3u(port: int, expected_enabled: bool):
+    status, _, body = http_get("127.0.0.1", port, "/playlist.m3u")
+    text = body.decode()
+
+    assert status == 200
+    assert "Config Test" in text
+    if expected_enabled:
+        assert "http://" not in text
+        assert "/Config%20Test" in text
+    else:
+        assert "http://127.0.0.1:" in text
 
 
 def _assert_udpxy_state(port: int, expected_enabled: bool):
@@ -232,6 +253,19 @@ OPTION_SOURCE_PRIORITY_CASES = [
     ),
     pytest.param(
         {
+            "name": "app-path-prefix",
+            "config_lines": _value_config_line("app-path-prefix"),
+            "cli_args": _value_cli_args("--app-path-prefix"),
+            "config_source_value": "cfg-prefix/",
+            "cli_source_value": "/cli-prefix",
+            "priority_config_value": "/config-prefix",
+            "priority_cli_value": "override-prefix/",
+            "assertion": _assert_app_path_prefix,
+        },
+        id="app-path-prefix",
+    ),
+    pytest.param(
+        {
             "name": "hostname",
             "config_lines": _hostname_config_line,
             "cli_args": _hostname_cli_args,
@@ -283,6 +317,20 @@ OPTION_SOURCE_PRIORITY_CASES = [
             "assertion": _assert_udpxy_state,
         },
         id="udpxy",
+    ),
+    pytest.param(
+        {
+            "name": "use-relative-path-in-m3u",
+            "config_lines": _bool_config_line("use-relative-path-in-m3u"),
+            "cli_args": _enable_flag("--use-relative-path-in-m3u"),
+            "config_source_value": True,
+            "cli_source_value": True,
+            "priority_config_value": False,
+            "priority_cli_value": True,
+            "assertion": _assert_use_relative_path_in_m3u,
+            "services_content": _INLINE_M3U,
+        },
+        id="use-relative-path-in-m3u",
     ),
     pytest.param(
         {

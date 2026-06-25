@@ -34,6 +34,7 @@ set(COMMON_SOURCES
   src/rtp2httpd.c
   src/supervisor.c
   src/configuration.c
+  src/access_log.c
   src/http.c
   src/http_fetch.c
   src/service.c
@@ -56,6 +57,7 @@ set(COMMON_SOURCES
   src/status.c
   src/connection.c
   src/worker.c
+  src/unix_socket.c
   src/buffer_pool.c
   src/zerocopy.c
   src/m3u.c

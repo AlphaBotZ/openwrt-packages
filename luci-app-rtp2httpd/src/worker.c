@@ -1,4 +1,5 @@
 #include "worker.h"
+#include "access_log.h"
 #include "configuration.h"
 #include "connection.h"
 #include "epg.h"
@@ -283,6 +284,7 @@ int worker_run_event_loop(int *listen_sockets, int num_sockets, int notif_fd) {
       if (config_reload(NULL) != 0) {
         logger(LOG_ERROR, "Configuration reload failed, keeping old config");
       }
+      access_log_reopen();
     }
 
     /* 1) Handle all ready events */
@@ -350,7 +352,9 @@ int worker_run_event_loop(int *listen_sockets, int num_sockets, int notif_fd) {
             break;
           }
           connection_set_nonblocking(cfd);
-          connection_set_tcp_nodelay(cfd);
+          if (client.ss_family == AF_INET || client.ss_family == AF_INET6) {
+            connection_set_tcp_nodelay(cfd);
+          }
 
           /* Create connection
            * status_index will be assigned later by status_register_client() if
