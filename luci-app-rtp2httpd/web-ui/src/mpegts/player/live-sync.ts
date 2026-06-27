@@ -1,9 +1,7 @@
 import type { PlayerConfig } from "../config";
 import Log from "../utils/logger";
-import { type LiveSessionAnchor, lagBehindLiveEdge } from "./wall-clock";
 
 const TAG = "LiveSync";
-const STALL_TAG = "StallJumper";
 
 /** Each live-edge underrun raises the latency floor by this much (seconds). */
 const UNDERRUN_BACKOFF_STEP = 1;
@@ -26,7 +24,7 @@ function forwardBufferAhead(video: HTMLMediaElement): number {
 export function setupLiveSync(
   video: HTMLMediaElement,
   config: PlayerConfig,
-  getLiveSessionAnchor: () => LiveSessionAnchor | null,
+  getLiveEdgeLatency: () => number | null,
 ): () => void {
   if (config.liveSync) {
     Log.v(
@@ -43,10 +41,8 @@ export function setupLiveSync(
   function onTimeUpdate(): void {
     if (!config.liveSync) return;
 
-    const anchor = getLiveSessionAnchor();
-    if (!anchor) return;
-
-    const latency = lagBehindLiveEdge(anchor, video.currentTime);
+    const latency = getLiveEdgeLatency();
+    if (latency === null) return;
 
     if (latency > config.liveSyncMaxLatency + extraLatency) {
       const targetRate = Math.min(2, Math.max(1, config.liveSyncPlaybackRate));
@@ -72,12 +68,11 @@ export function setupLiveSync(
     // Seek/Go Live often fires waiting while data is still buffered ahead — not an underrun.
     if (video.seeking) return;
 
-    const anchor = getLiveSessionAnchor();
-    if (!anchor) return;
+    const lag = getLiveEdgeLatency();
+    if (lag === null) return;
 
-    const lag = lagBehindLiveEdge(anchor, video.currentTime);
     const ahead = forwardBufferAhead(video);
-    // Near session live edge AND playhead has caught up with its forward buffer.
+    // Near source-mode live edge AND playhead has caught up with its forward buffer.
     const atLiveEdge = lag < 0.5 && ahead < 0.5;
     if (!atLiveEdge) return;
 
@@ -102,50 +97,5 @@ export function setupLiveSync(
     video.removeEventListener("timeupdate", onTimeUpdate);
     video.removeEventListener("waiting", onWaiting);
     video.playbackRate = 1;
-  };
-}
-
-/**
- * Detect and fix stuck playback at startup.
- * If the video is stalled or hasn't received canplay and the currentTime is before
- * the first buffered range, seek to the start of the buffered range.
- */
-export interface StallJumper {
-  check(): void;
-  destroy(): void;
-}
-
-export function setupStartupStallJumper(video: HTMLMediaElement): StallJumper {
-  let canplayReceived = false;
-
-  function onCanPlay(): void {
-    canplayReceived = true;
-    video.removeEventListener("canplay", onCanPlay);
-  }
-
-  function detectAndFix(isStalled?: boolean): void {
-    const buffered = video.buffered;
-    if (isStalled || !canplayReceived || video.readyState < 2) {
-      if (buffered.length > 0 && video.currentTime < buffered.start(0)) {
-        const target = buffered.start(0);
-        Log.w(STALL_TAG, `Playback stuck at ${video.currentTime}, seeking to ${target}`);
-        video.currentTime = target;
-      }
-    }
-  }
-
-  function onStalled(): void {
-    detectAndFix(true);
-  }
-
-  video.addEventListener("canplay", onCanPlay);
-  video.addEventListener("stalled", onStalled);
-
-  return {
-    check: () => detectAndFix(),
-    destroy: () => {
-      video.removeEventListener("canplay", onCanPlay);
-      video.removeEventListener("stalled", onStalled);
-    },
   };
 }

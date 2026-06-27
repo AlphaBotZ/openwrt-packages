@@ -3,13 +3,18 @@ import { createDefaultConfig } from "../config";
 import { WorkerAudioDecoder } from "../decoder/worker-audio-decoder";
 import DemuxErrors from "../demux/demux-errors";
 import TSDemuxer from "../demux/ts-demuxer";
-import { containsMoov, parseInitSegment, probeFmp4, splitInitFromSegment } from "../hls/fmp4";
+import { containsMoov, getSegmentStartTime, parseInitSegment, probeFmp4, splitInitFromSegment } from "../hls/fmp4";
 import { type HlsInfo, HlsSource } from "../hls/hls-source";
 import FetchLoader, { LoaderErrors } from "../io/fetch-loader";
 import MP4Remuxer from "../remux/mp4-remuxer";
 import type { PlayerSegment } from "../types";
 import Log from "../utils/logger";
-import { type SegmentMeta, type SegmentSource, StaticSegmentSource } from "./segment-source";
+import {
+  ContinuousLiveSegmentSource,
+  type SegmentMeta,
+  type SegmentSource,
+  StaticSegmentSource,
+} from "./segment-source";
 
 export interface PipelineCallbacks {
   onInitSegment: (
@@ -49,9 +54,9 @@ class LoadError extends Error {
 }
 
 const HLS_URL_RE = /\.m3u8?($|\?)/i;
-
 /** Sentinel rejection value for intentionally cancelled segment loads. */
 const CANCELLED = Symbol("cancelled");
+type SourceMode = "continuous-live-ts" | "static-ts-list" | "hls";
 
 /** Copy a Uint8Array view into a standalone (transferable) ArrayBuffer. */
 function toArrayBuffer(view: Uint8Array): ArrayBuffer {
@@ -74,6 +79,7 @@ class Pipeline {
 
   private _source: SegmentSource | null = null;
   private _hlsSource: HlsSource | null = null;
+  private _sourceMode: SourceMode = "static-ts-list";
 
   private _demuxer: TSDemuxer | null = null;
   private _remuxer: MP4Remuxer | null = null;
@@ -83,13 +89,6 @@ class Pipeline {
 
   private _paused = false;
   private _resumeGate: (() => void) | null = null;
-  /**
-   * Discrete segment sources (HLS, catchup lists) load one short URL per iteration.
-   * For these, pause only gates between segments — never abort an in-flight fetch
-   * (which shows up as immediate cancel/retry on later segments).
-   */
-  private _discreteSegments = false;
-
   /** dts offset (ms) to apply when the remuxer is next created (HLS discontinuity / seek). */
   private _pendingDtsOffsetMs = 0;
 
@@ -98,6 +97,8 @@ class Pipeline {
   private _fmp4InitSent = false;
   private _fmp4Chunks: Uint8Array[] = [];
   private _lastInitUrl: string | null = null;
+  private _fmp4Timescales = new Map<number, number>();
+  private _fmp4TimestampOffsetWarningLogged = false;
 
   private _workerAudioDecoder: WorkerAudioDecoder | null = null;
   private _workerAudioDecoderInitPromise: Promise<boolean> | null = null;
@@ -108,7 +109,13 @@ class Pipeline {
   private _audioSamplesSinceAnchor = 0;
   private _audioSampleRate = 0;
   /** PCM decoded before the remuxer dts base is known (flushed once available). */
-  private _pendingPcm: Array<{ pcm: Float32Array; channels: number; sampleRate: number; ptsMs: number }> = [];
+  private _pendingPcm: Array<{
+    pcm: Float32Array;
+    channels: number;
+    sampleRate: number;
+    ptsMs: number;
+    durationMs: number;
+  }> = [];
   /** Incremented on audio timing resets to invalidate decode callbacks queued before the reset. */
   private _audioGen = 0;
 
@@ -128,15 +135,15 @@ class Pipeline {
 
   pause(): void {
     this._paused = true;
-    // Continuous single-URL TS streams can pause mid-fetch and resume via Range.
-    if (!this._discreteSegments) {
+    // Continuous live TS streams pause mid-fetch and resume with a fresh request.
+    if (this._sourceMode === "continuous-live-ts") {
       this._ioctl?.pause();
     }
   }
 
   resume(): void {
     this._paused = false;
-    if (!this._discreteSegments) {
+    if (this._sourceMode === "continuous-live-ts") {
       this._ioctl?.resume();
     }
     this._resumeGate?.();
@@ -163,11 +170,20 @@ class Pipeline {
     this._workerAudioDecoder?.reset();
     this._resetAudioTiming();
 
-    const url = segments[0]?.url ?? "";
-    this._discreteSegments = segments.length > 1 || HLS_URL_RE.test(url);
-    if (segments.length === 1 && HLS_URL_RE.test(url)) {
+    const firstSegment = segments[0];
+    if (!firstSegment) return;
+    const url = firstSegment.url;
+    const isHls = segments.length === 1 && HLS_URL_RE.test(url);
+    const isContinuousLiveTs = segments.length === 1 && !isHls && (firstSegment.duration ?? 0) === 0;
+
+    this._sourceMode = isHls ? "hls" : isContinuousLiveTs ? "continuous-live-ts" : "static-ts-list";
+
+    if (isHls) {
       // Fast path: known playlist URL, skip the content-type detection round-trip
       this._startHls(url);
+    } else if (isContinuousLiveTs) {
+      this._source = new ContinuousLiveSegmentSource(firstSegment);
+      void this._run(this._runId);
     } else {
       this._source = new StaticSegmentSource(segments);
       void this._run(this._runId);
@@ -175,7 +191,7 @@ class Pipeline {
   }
 
   private _startHls(url: string, preloaded?: { text: string; url: string }): void {
-    this._discreteSegments = true;
+    this._sourceMode = "hls";
     const hls = new HlsSource(url, this._config, preloaded);
     hls.onInfo = (info) => this._callbacks.onHlsInfo(info);
     this._hlsSource = hls;
@@ -202,7 +218,10 @@ class Pipeline {
     this._fmp4InitSent = false;
     this._fmp4Chunks = [];
     this._lastInitUrl = null;
+    this._fmp4Timescales = new Map();
+    this._fmp4TimestampOffsetWarningLogged = false;
     this._paused = false;
+    this._sourceMode = "static-ts-list";
     this._resumeGate?.();
     this._resumeGate = null;
   }
@@ -268,18 +287,11 @@ class Pipeline {
         if (this._runId !== runId) return;
 
         if (this._fmp4Mode) {
-          this._flushFmp4Segment();
-        }
-        // Flush stashed samples at every segment boundary so the next segment's first
-        // remux batch is not mixed with the previous segment's tail (which would share
-        // one dtsCorrection and preserve upstream HLS timestamp gaps in MSE).
-        this._remuxer?.flushStashedSamples();
-        if (!this._hlsSource) {
-          // Each static segment is an independent TS timeline: a partial MP2
-          // frame carried from the previous URL must not be prepended to the
-          // next one, and the PTS anchor must re-establish from the new PES
-          this._workerAudioDecoder?.reset();
-          this._resetAudioTiming();
+          this._flushFmp4Segment(meta);
+        } else if (this._hlsSource) {
+          this._remuxer?.flushStashedSamples();
+        } else {
+          this._finishTsInputBoundary();
         }
       } catch (e) {
         if (this._runId !== runId || e === CANCELLED) return;
@@ -311,6 +323,30 @@ class Pipeline {
     this._resetAudioTiming();
   }
 
+  private _shouldAnchorSegment(meta: SegmentMeta): boolean {
+    return meta.resetRemuxer || !this._hlsSource;
+  }
+
+  private _finishTsInputBoundary(): void {
+    // Flush stashed samples at every TS segment boundary so the next segment's first
+    // remux batch is not mixed with the previous segment's tail.
+    this._demuxer?.flushSegmentBoundary();
+    this._remuxer?.flushStashedSamples();
+    this._workerAudioDecoder?.reset();
+    this._resetAudioTiming();
+  }
+
+  private _prepareContinuousLiveTsRestart(meta: SegmentMeta, ioctl: FetchLoader): void {
+    if (this._sourceMode !== "continuous-live-ts") {
+      return;
+    }
+
+    this._finishTsInputBoundary();
+    this._fmp4Mode = false;
+    this._fmp4Chunks = [];
+    ioctl.onDataArrival = (data, byteStart) => this._onProbeChunk(meta, data, byteStart);
+  }
+
   private _resetAudioTiming(): void {
     this._audioGen++;
     this._audioAnchorPtsMs = null;
@@ -328,6 +364,8 @@ class Pipeline {
         referrerPolicy: this._config.referrerPolicy as ReferrerPolicy | undefined,
       },
       this._config,
+      undefined,
+      { resumeMode: this._sourceMode === "continuous-live-ts" ? "restart" : "range" },
     );
     this._ioctl = ioctl;
 
@@ -336,6 +374,7 @@ class Pipeline {
 
       ioctl.onError = (type, info) => reject(new LoadError(type, info));
       ioctl.onSeeked = () => this._remuxer?.insertDiscontinuity();
+      ioctl.onRestarted = () => this._prepareContinuousLiveTsRestart(meta, ioctl);
       ioctl.onComplete = () => resolve();
       ioctl.onHLSDetected = (text, url) => {
         // Playlist served from a non-.m3u8 URL: switch the pipeline to the HLS source,
@@ -389,10 +428,24 @@ class Pipeline {
   // ---- MPEG-TS path ----
 
   private _setupTSDemuxerRemuxer(probeData: unknown, meta: SegmentMeta): void {
+    const shouldAnchor = this._shouldAnchorSegment(meta);
+    const canReuseHls = this._hlsSource !== null && !shouldAnchor && this._demuxer !== null && this._remuxer !== null;
+    const canReuseTsInputBoundary = this._sourceMode !== "hls" && this._demuxer !== null && this._remuxer !== null;
+    const canReuse = canReuseHls || canReuseTsInputBoundary;
+    if (canReuse) {
+      this._demuxer?.resetSegmentBoundary(probeData as ConstructorParameters<typeof TSDemuxer>[0], {
+        resetAudioParserState: canReuseTsInputBoundary,
+      });
+      this._remuxer?.setTsSegmentContinuityNormalization(canReuseTsInputBoundary);
+      return;
+    }
+
     if (this._demuxer) {
       this._demuxer.destroy();
     }
-    const demuxer = new TSDemuxer(probeData as ConstructorParameters<typeof TSDemuxer>[0]);
+    const demuxer = new TSDemuxer(probeData as ConstructorParameters<typeof TSDemuxer>[0], {
+      waitForInitialVideoKeyframe: shouldAnchor || !this._demuxer || !this._remuxer,
+    });
     this._demuxer = demuxer;
 
     if (!this._remuxer) {
@@ -402,9 +455,18 @@ class Pipeline {
         this._pendingDtsOffsetMs = 0;
       }
     }
+    this._remuxer.setTsSegmentContinuityNormalization(false);
 
     demuxer.onError = this._onDemuxException.bind(this);
-    demuxer.timestampBase = meta.timestampBase * 90000; // seconds → 90kHz ticks
+    demuxer.timestampBase = 0;
+    demuxer.onTrackDiscontinuity = (track) => {
+      if (track === "video") {
+        this._remuxer?.flushStashedSamples();
+        this._remuxer?.insertDiscontinuity();
+      }
+      this._workerAudioDecoder?.reset();
+      this._resetAudioTiming();
+    };
 
     // Set up software audio decode callback when MP2 WASM URL is configured
     if (this._config.wasmDecoders.mp2) {
@@ -455,7 +517,10 @@ class Pipeline {
   }
 
   private _sendFmp4Init(data: Uint8Array): void {
-    const codec = this._hlsSource?.info.codecs ?? parseInitSegment(data).codecs.join(",");
+    const initInfo = parseInitSegment(data);
+    this._fmp4Timescales = initInfo.timescales;
+    this._fmp4TimestampOffsetWarningLogged = false;
+    const codec = this._hlsSource?.info.codecs ?? initInfo.codecs.join(",");
     this._callbacks.onInitSegment("video", {
       type: "video",
       container: "video/mp4",
@@ -465,13 +530,37 @@ class Pipeline {
     this._fmp4InitSent = true;
   }
 
+  private _warnFmp4TimestampOffsetUnavailable(reason: string): void {
+    if (this._fmp4TimestampOffsetWarningLogged) {
+      return;
+    }
+    this._fmp4TimestampOffsetWarningLogged = true;
+    Log.w(this.TAG, `fMP4 timestampOffset unavailable: ${reason}; appending media with original tfdt`);
+  }
+
+  private _getFmp4TimestampOffset(meta: SegmentMeta, media: Uint8Array): number | undefined {
+    if (this._fmp4Timescales.size === 0) {
+      this._warnFmp4TimestampOffsetUnavailable("init segment timescales missing");
+      return undefined;
+    }
+
+    const segmentStart = getSegmentStartTime(media, this._fmp4Timescales);
+    if (segmentStart === null) {
+      this._warnFmp4TimestampOffsetUnavailable("media segment has no tfdt");
+      return undefined;
+    }
+
+    const timestampOffset = (meta.start - segmentStart) * 1000;
+    return Math.abs(timestampOffset) < 0.001 ? 0 : timestampOffset;
+  }
+
   private _onFmp4Chunk(data: Uint8Array): number {
     this._fmp4Chunks.push(data);
     return data.byteLength;
   }
 
   /** Forward a fully buffered fMP4 segment to MSE (extracting the init part on first use). */
-  private _flushFmp4Segment(): void {
+  private _flushFmp4Segment(meta: SegmentMeta): void {
     if (this._fmp4Chunks.length === 0) {
       return;
     }
@@ -496,7 +585,12 @@ class Pipeline {
     }
 
     if (media.byteLength > 0) {
-      this._callbacks.onMediaSegment("video", { type: "video", data: toArrayBuffer(media) });
+      this._pendingDtsOffsetMs = 0;
+      this._callbacks.onMediaSegment("video", {
+        type: "video",
+        data: toArrayBuffer(media),
+        timestampOffset: this._getFmp4TimestampOffset(meta, media),
+      });
     }
   }
 
@@ -524,18 +618,20 @@ class Pipeline {
       // straddle PES boundaries or a PES contains multiple frames. Re-anchor only
       // on genuine discontinuities (> 100ms deviation).
       const sr = result.sampleRate;
+      const carriedSamples = Math.min(Math.max(0, result.samplesBeforeInput), result.samplesPerChannel);
+      const decodedStartPts = frame.pts - (carriedSamples / sr) * 1000;
       if (this._audioAnchorPtsMs === null || this._audioSampleRate !== sr) {
-        this._audioAnchorPtsMs = frame.pts;
+        this._audioAnchorPtsMs = decodedStartPts;
         this._audioSamplesSinceAnchor = 0;
         this._audioSampleRate = sr;
       } else {
         const extrapolatedMs = this._audioAnchorPtsMs + (this._audioSamplesSinceAnchor / sr) * 1000;
-        if (Math.abs(frame.pts - extrapolatedMs) > 100) {
+        if (Math.abs(decodedStartPts - extrapolatedMs) > 100) {
           Log.v(
             this.TAG,
-            `Audio PTS discontinuity: pes=${frame.pts.toFixed(1)}ms extrap=${extrapolatedMs.toFixed(1)}ms`,
+            `Audio PTS discontinuity: decoded=${decodedStartPts.toFixed(1)}ms extrap=${extrapolatedMs.toFixed(1)}ms`,
           );
-          this._audioAnchorPtsMs = frame.pts;
+          this._audioAnchorPtsMs = decodedStartPts;
           this._audioSamplesSinceAnchor = 0;
         }
       }
@@ -552,10 +648,10 @@ class Pipeline {
    * PCM decoded before the first remux (dts base unknown) is queued.
    */
   private _emitPcm(pcm: Float32Array, channels: number, sampleRate: number, ptsMs: number): void {
-    this._pendingPcm.push({ pcm, channels, sampleRate, ptsMs });
+    const durationMs = (Math.floor(pcm.length / channels) / sampleRate) * 1000;
+    this._pendingPcm.push({ pcm, channels, sampleRate, ptsMs, durationMs });
 
-    const dtsBase = this._remuxer?.getTimestampBase();
-    if (dtsBase === undefined) {
+    if (this._remuxer?.getTimestampBase() === undefined) {
       // Bound the queue: ~25s of audio at one payload per ~72ms is plenty
       if (this._pendingPcm.length > 512) {
         this._pendingPcm.shift();
@@ -563,10 +659,36 @@ class Pipeline {
       return;
     }
 
-    for (const item of this._pendingPcm) {
-      this._callbacks.onPCMAudioData(item.pcm, item.channels, item.sampleRate, (item.ptsMs - dtsBase) / 1000);
-    }
+    const pending = this._pendingPcm;
     this._pendingPcm = [];
+
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
+      const mapping = this._remuxer?.mapPcmTimestamp(item.ptsMs, item.durationMs);
+      if (mapping === undefined) {
+        this._pendingPcm.push(...pending.slice(i));
+        if (this._pendingPcm.length > 512) {
+          this._pendingPcm.splice(0, this._pendingPcm.length - 512);
+        }
+        break;
+      }
+      if (mapping.action === "drop") {
+        continue;
+      }
+
+      let pcm = item.pcm;
+      if (mapping.trimStartMs > 0) {
+        const cutFrames = Math.round((mapping.trimStartMs / 1000) * item.sampleRate);
+        const totalFrames = Math.floor(pcm.length / item.channels);
+        if (cutFrames >= totalFrames) {
+          continue;
+        }
+        if (cutFrames > 0) {
+          pcm = pcm.slice(cutFrames * item.channels);
+        }
+      }
+      this._callbacks.onPCMAudioData(pcm, item.channels, item.sampleRate, mapping.time);
+    }
   }
 }
 
