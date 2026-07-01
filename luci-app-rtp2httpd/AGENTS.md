@@ -8,6 +8,7 @@ RTP/IPTV multicast-to-HTTP streaming daemon written in C, with a React/TypeScrip
 - Multi-worker model via `fork()` — workers are independent, only sharing stats via shared memory
 - Cross-platform: Linux, macOS, FreeBSD — use `#ifdef` for platform-specific APIs
 - Web UI (React/Vite) is compiled and embedded as `src/embedded_web_data.h` — never edit this file directly
+- If `src/embedded_web_data.h` changes from a Web UI rebuild, do not commit it unless explicitly requested.
 - Config file format is INI (`rtp2httpd.conf`), not YAML/JSON
 
 ## Code Style — C
@@ -21,6 +22,7 @@ RTP/IPTV multicast-to-HTTP streaming daemon written in C, with a React/TypeScrip
 ## Code Style — TypeScript / JavaScript
 
 - Formatter/linter: Biome (`biome.json`), line width 120, indent with tabs
+- Follow `.nvmrc` via `nvm` + Corepack (`pnpm`) for JS tooling when available; if `nvm` is unavailable, fall back to the system `node`.
 - Prefer Tailwind CSS utilities for styling; add custom CSS classes only when Tailwind cannot express the behavior clearly.
 
 ## Code Style — Python
@@ -44,3 +46,14 @@ RTP/IPTV multicast-to-HTTP streaming daemon written in C, with a React/TypeScrip
 - Use npm/yarn — this project uses pnpm
 - Use autotools — this project uses CMake
 - Add dependencies without discussing first
+
+## Cursor Cloud specific instructions
+
+Toolchain is pre-installed and refreshed by the startup update script (`pnpm install --frozen-lockfile`
+then `uv sync --group dev`). Standard commands live in `package.json` scripts and the `build-run` /
+`e2e` skills — use those rather than reinventing them.
+
+Non-obvious notes:
+
+- **Dev lab**: `tools/devlab/devlab.py` starts local mock upstreams for Web UI/player debugging,
+  including live, catchup, RTP multicast, HLS, and RTSP scenarios. See `tools/devlab/README.md`.
