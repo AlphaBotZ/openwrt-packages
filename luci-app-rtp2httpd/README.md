@@ -4,9 +4,9 @@
 
 [>> English Documentation <<](https://rtp2httpd.com/en/)
 
-rtp2httpd 是一个多媒体流转发服务器。本项目基于 [oskar456/rtp2httpd](https://github.com/oskar456/rtp2httpd) 做了完全重写，在原项目基础上加入了许多新功能，专为中国大陆 IPTV 环境设计。
+rtp2httpd 是一个 IPTV 转发服务器，支持将组播 RTP/UDP、RTSP 转换为 HTTP 流，或将 HLS 流从内网代理到外网。
 
-rtp2httpd 支持将组播 RTP/UDP 流、RTSP 流转换为 HTTP 单播流，并实现了运营商级的 FCC（[Fast Channel Change](https://blog.csdn.net/yangzex/article/details/131328837)）快速换台协议，可以作为 `udpxy` 和 `msd_lite` 的无缝替代，为 IPTV 用户提供接近原生机顶盒的观看体验。
+本项目专为中国大陆 IPTV 环境进行优化，实现了运营商级的 FCC（[Fast Channel Change](https://blog.csdn.net/yangzex/article/details/131328837)）快速换台协议，可作为 `udpxy` 和 `msd_lite` 的无缝替代，为 IPTV 用户提供接近原生机顶盒的观看体验。
 
 ## ✨ 核心功能特性
 
@@ -45,6 +45,7 @@ rtp2httpd 支持将组播 RTP/UDP 流、RTSP 流转换为 HTTP 单播流，并�
 - **快速起播**：搭配 FCC 可实现快速起播、快速换台
 - **支持时移和回看**：支持 EPG 电子节目单，支持时移和回看（需要有 RTSP 回看源）
 - **零开销**：纯 Web 前端实现，对 rtp2httpd 运行几乎没有资源占用（无解码转码开销）
+- **画质增强**：支持自动反交错、AMD FSR 1 超分辨率技术，优化 576i / 1080i 在现代 2K/4K 屏幕上的表现
 
 ### 🚀 高性能优化
 
@@ -53,7 +54,7 @@ rtp2httpd 支持将组播 RTP/UDP 流、RTSP 流转换为 HTTP 单播流，并�
 - **缓冲池优化**：预分配缓冲池，避免频繁内存分配，多客户端根据负载动态共享，避免慢客户端吃满资源
 - **零拷贝技术**：支持 Linux 内核 MSG_ZEROCOPY 特性，避免数据在用户态和内核态之间的拷贝
 - **轻量化**：使用纯 C 语言编写，零依赖，小巧简洁，适合运行在各种嵌入式设备上（路由器、光猫、NAS 等）
-  - 程序大小仅 368KB (x86_64)，并内置了 Web 播放器所有前端资源
+  - 程序大小仅 450KB (x86_64)，并内置了 Web 播放器所有前端资源
 - 查看 **[性能测试报告](https://rtp2httpd.com/reference/benchmark)**（与 msd_lite、udpxy、tvgate 的性能对比）
 
 ## 📹 演示效果
@@ -68,7 +69,7 @@ https://github.com/user-attachments/assets/ca1a332f-d6e7-4a1e-be88-92bef67758b3
 
 ### 内置播放器
 
-https://github.com/user-attachments/assets/b32f134d-87ac-46d0-90fe-50ffa410069a
+https://github.com/user-attachments/assets/d3dab0c0-03c4-453b-86ae-85406e5208eb
 
 > [!TIP]
 > 需要配置 M3U 播放列表后使用，通过浏览器访问 `http://<server:port>/player` 即可打开。
@@ -76,7 +77,7 @@ https://github.com/user-attachments/assets/b32f134d-87ac-46d0-90fe-50ffa410069a
 
 ### 实时状态监控
 
-<img width="3046" height="1508" alt="web-dashboard" src="https://github.com/user-attachments/assets/8758c0ab-b144-41ed-8d90-9c41b375e22b" />
+<img width="2890" height="1762" alt="web-dashboard" src="https://github.com/user-attachments/assets/09ad1e6e-f21f-4635-9706-04833063ba1b" />
 
 ### 25 条 1080p 组播流同时播放
 
