@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { CircleAlert, Play } from "lucide-react";
+import { CircleAlert, Play, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -31,6 +31,7 @@ import {
   isSupported,
   type Player,
   type PlayerError,
+  PlayerErrors,
   type PlayerMediaInfo,
   type PlayerRenderState,
   type PlayerSegment,
@@ -131,6 +132,21 @@ function decodeRequestUrl(url: string): string {
   }
 }
 
+function formatTechnicalPlayerError(playerError: PlayerError): string {
+  const details: string[] = [playerError.detail];
+  if (playerError.codec) {
+    details.push(`${playerError.track ?? "media"} codec=${playerError.codec}`);
+  }
+  details.push(playerError.info ?? "");
+  if (playerError.code !== undefined && playerError.code !== -1) {
+    details.push(`code=${playerError.code}`);
+  }
+  if (playerError.url) {
+    details.push(decodeRequestUrl(playerError.url));
+  }
+  return details.filter((value) => value !== undefined && value !== "").join(": ");
+}
+
 function getEventDocument(event: Event): Document {
   const target = event.target;
   if (target && "ownerDocument" in target) {
@@ -202,25 +218,30 @@ function PlayerTopLeftOverlay({
     <div
       className={clsx(
         PLAYER_OVERLAY_SURFACE_CLASS,
-        "absolute top-4 left-4 z-10 max-w-[calc(100%-2rem)] rounded-xl px-2 py-1.5 transition-opacity duration-300 md:top-8 md:left-8 md:px-3 md:py-2",
+        "absolute top-4 left-4 z-10 max-w-[calc(100%-2rem)] rounded-xl px-2 py-1.5 transition-opacity duration-300 md:top-8 md:left-8 md:px-3 md:py-2 [@container_video_(max-height:_320px)]:top-2 [@container_video_(max-height:_320px)]:left-2 [@container_video_(max-height:_320px)]:rounded-lg [@container_video_(max-height:_320px)]:px-1.5 [@container_video_(max-height:_320px)]:py-1 md:[@container_video_(max-height:_320px)]:top-2 md:[@container_video_(max-height:_320px)]:left-2 md:[@container_video_(max-height:_320px)]:px-1.5 md:[@container_video_(max-height:_320px)]:py-1 [@container_video_(max-height:_220px)]:top-1 [@container_video_(max-height:_220px)]:left-1 md:[@container_video_(max-height:_220px)]:top-1 md:[@container_video_(max-height:_220px)]:left-1",
         visible ? "opacity-100" : "opacity-0 pointer-events-none",
       )}
     >
       <PlayerSelectedGlassLayers />
-      <div className="relative z-10 flex min-w-0 items-center gap-1.5 md:gap-2">
-        <span className="shrink-0 font-medium text-xs text-blue-50 tabular-nums drop-shadow-sm md:text-base">
+      <div className="relative z-10 flex min-w-0 items-center gap-1.5 md:gap-2 [@container_video_(max-height:_320px)]:gap-1 md:[@container_video_(max-height:_320px)]:gap-1">
+        <span className="shrink-0 font-medium text-xs text-blue-50 tabular-nums drop-shadow-sm md:text-base md:[@container_video_(max-height:_320px)]:text-xs">
           {time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </span>
         {loading && (
           <>
-            <span className="shrink-0 text-blue-100/35 text-xs md:text-sm" aria-hidden="true">
+            <span
+              className="shrink-0 text-blue-100/35 text-xs md:text-sm md:[@container_video_(max-height:_320px)]:text-xs"
+              aria-hidden="true"
+            >
               ·
             </span>
-            <div className="relative h-3 w-3 shrink-0 md:h-3.5 md:w-3.5">
+            <div className="relative h-3 w-3 shrink-0 md:h-3.5 md:w-3.5 md:[@container_video_(max-height:_320px)]:h-3 md:[@container_video_(max-height:_320px)]:w-3">
               <div className="absolute inset-0 rounded-full border border-blue-100/25" />
               <div className="absolute inset-0 animate-spin rounded-full border border-blue-200 border-t-transparent shadow-[0_0_8px_rgba(147,197,253,0.5)]" />
             </div>
-            <span className="min-w-0 truncate text-blue-50/70 text-xs md:text-sm">{loadingText}</span>
+            <span className="min-w-0 truncate text-blue-50/70 text-xs md:text-sm md:[@container_video_(max-height:_320px)]:text-xs">
+              {loadingText}
+            </span>
           </>
         )}
       </div>
@@ -322,6 +343,7 @@ export function VideoPlayer({
   const [error, setError] = useState<PlaybackErrorDisplay | null>(() =>
     isSupported() ? null : { message: t("mseNotSupported") },
   );
+  const [warning, setWarning] = useState<PlaybackErrorDisplay | null>(null);
   const [volume, setVolume] = useState(() => getVolume());
   const [isMuted, setIsMuted] = useState(() => getMuted());
   const [isPlaying, setIsPlaying] = useState(false);
@@ -466,6 +488,18 @@ export function VideoPlayer({
     setShowControls(true);
     resetControlsTimer();
   }, [resetControlsTimer]);
+
+  const handleScrubbingChange = useCallback(
+    (isScrubbing: boolean) => {
+      if (hideControlsTimeoutRef.current) {
+        window.clearTimeout(hideControlsTimeoutRef.current);
+        hideControlsTimeoutRef.current = 0;
+      }
+      setShowControls(true);
+      if (!isScrubbing) resetControlsTimer();
+    },
+    [resetControlsTimer],
+  );
 
   const hideControlsImmediately = useCallback(() => {
     if (hideControlsTimeoutRef.current) {
@@ -668,59 +702,58 @@ export function VideoPlayer({
 
   const runPlayerErrorRecovery = useEffectEvent((playerError: PlayerError, slotId: SlotId) => {
     console.error("Player error:", playerError);
+    setWarning(null);
 
     const isPendingTransition = pendingTransitionRef.current?.slotId === slotId;
     if (isPendingTransition) {
       completePendingSwitchIfNeeded(slotId);
     }
 
-    let errorMessage = t("playbackError");
+    const technicalErrorMessage = formatTechnicalPlayerError(playerError);
+    let errorMessage = technicalErrorMessage || t("playbackError");
     let errorDisplay: PlaybackErrorDisplay = { message: errorMessage };
     let decodingErrorRetry = false;
-    const isHttpStatusError = playerError.category === "io" && playerError.detail === "HttpStatusCodeInvalid";
+    const isHttpStatusError =
+      playerError.category === "io" && playerError.detail === PlayerErrors.HTTP_STATUS_CODE_INVALID;
+    const isUpstreamRequestError =
+      isHttpStatusError || (playerError.category === "io" && playerError.detail === PlayerErrors.REQUEST_FAILED);
+    const isCodecUnsupported = playerError.detail === PlayerErrors.CODEC_UNSUPPORTED;
 
     if (playerError.category === "media") {
-      if (playerError.detail === "MediaMSEError") {
-        errorMessage = `${t("mediaError")}: ${playerError.info}`;
+      if (playerError.detail === PlayerErrors.MEDIA_MSE_ERROR) {
         const video = slotVideoRef(slotId).current;
         if (playerError.info?.includes("HTMLMediaElement.error")) {
           if (video?.error?.message?.includes("PIPELINE_ERROR_DECODE")) {
             decodingErrorRetry = true;
-          } else if (video?.error?.message) {
+          }
+          if (video?.error?.message && !errorMessage.includes(video.error.message)) {
             errorMessage += `: ${video.error.message}`;
           }
         }
-      } else {
-        errorMessage = `${t("mediaError")}: ${playerError.detail}`;
-      }
-    } else if (playerError.category === "demux") {
-      if (playerError.detail === "FormatUnsupported" || playerError.detail === "CodecUnsupported") {
-        errorMessage = t("codecError");
-      } else {
-        errorMessage = `${t("mediaError")}: ${playerError.detail}`;
       }
     } else if (playerError.category === "io") {
-      if (isHttpStatusError) {
+      if (isUpstreamRequestError) {
         const status = [playerError.code, playerError.info]
-          .filter((value) => value !== undefined && value !== "")
+          .filter((value) => value !== undefined && value !== "" && value !== -1)
           .join(" ");
-        errorMessage = `${t("upstreamRequestFailed")}${status ? `: HTTP ${status}` : ""}${
+        errorMessage = `${t("upstreamRequestFailed")}${isHttpStatusError && status ? `: HTTP ${status}` : ""}${
           playerError.url ? ` (${playerError.url})` : ""
         }`;
         errorDisplay = {
           message: t("upstreamRequestFailed"),
           description: t("upstreamRequestFailedDescription"),
-          statusCode: playerError.code,
-          statusText: playerError.info,
+          statusCode: isHttpStatusError ? playerError.code : undefined,
+          statusText: isHttpStatusError ? playerError.info : undefined,
           requestUrl: playerError.url ? decodeRequestUrl(playerError.url) : undefined,
           suggestion: t("upstreamRequestFailedSuggestion"),
         };
-      } else {
-        errorMessage = `${t("networkError")}: ${playerError.detail}${playerError.info ? `: ${playerError.info}` : ""}`;
       }
     }
 
-    if (!isHttpStatusError) {
+    if (isCodecUnsupported) {
+      errorMessage = t("codecError");
+      errorDisplay = { message: errorMessage, description: technicalErrorMessage };
+    } else if (!isUpstreamRequestError) {
       errorDisplay = { message: errorMessage };
     }
 
@@ -762,6 +795,14 @@ export function VideoPlayer({
   });
 
   const handlePlayerError = useEffectEvent((playerError: PlayerError, slotId: SlotId) => {
+    if (playerError.detail === PlayerErrors.CODEC_UNSUPPORTED && playerError.track === "audio") {
+      console.error("Player audio warning:", playerError);
+      setWarning({
+        message: t("audioCodecError"),
+        description: formatTechnicalPlayerError(playerError),
+      });
+      return;
+    }
     runPlayerErrorRecovery(playerError, slotId);
   });
 
@@ -1015,6 +1056,7 @@ export function VideoPlayer({
     showControlsImmediately();
     setIsLoading(true);
     setError(null);
+    setWarning(null);
 
     const isStreamSwitch =
       channel != null &&
@@ -1730,14 +1772,14 @@ export function VideoPlayer({
       {channel && (
         <div
           className={clsx(
-            "absolute top-4 right-4 md:top-8 md:right-8 z-10 flex flex-col gap-2 md:gap-3 items-end transition-opacity duration-300",
+            "absolute top-4 right-4 z-10 flex flex-col items-end gap-2 transition-opacity duration-300 md:top-8 md:right-8 md:gap-3 [@container_video_(max-height:_320px)]:top-2 [@container_video_(max-height:_320px)]:right-2 [@container_video_(max-height:_320px)]:gap-1 md:[@container_video_(max-height:_320px)]:top-2 md:[@container_video_(max-height:_320px)]:right-2 md:[@container_video_(max-height:_320px)]:gap-1 [@container_video_(max-height:_220px)]:top-1 [@container_video_(max-height:_220px)]:right-1 md:[@container_video_(max-height:_220px)]:top-1 md:[@container_video_(max-height:_220px)]:right-1",
             showControls ? "opacity-100" : "opacity-0 pointer-events-none",
           )}
         >
           <div
             className={clsx(
               PLAYER_OVERLAY_SURFACE_CLASS,
-              "relative flex max-w-[calc(100vw-2rem)] flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl px-2 py-1.5 md:max-w-none md:gap-2 md:px-3 md:py-2",
+              "relative flex max-w-[calc(100vw-2rem)] flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl px-2 py-1.5 md:max-w-none md:gap-2 md:px-3 md:py-2 [@container_video_(max-height:_320px)]:gap-1 [@container_video_(max-height:_320px)]:rounded-lg [@container_video_(max-height:_320px)]:px-1.5 [@container_video_(max-height:_320px)]:py-1 md:[@container_video_(max-height:_320px)]:gap-1 md:[@container_video_(max-height:_320px)]:px-1.5 md:[@container_video_(max-height:_320px)]:py-1",
             )}
           >
             <PlayerSelectedGlassLayers />
@@ -1746,17 +1788,17 @@ export function VideoPlayer({
                 src={channel.logo}
                 alt={channel.name}
                 referrerPolicy="no-referrer"
-                className="relative z-10 h-8 w-20 object-contain drop-shadow-[0_0_14px_rgba(147,197,253,0.2)] md:h-14 md:w-36"
+                className="relative z-10 h-8 w-20 object-contain drop-shadow-[0_0_14px_rgba(147,197,253,0.2)] md:h-14 md:w-36 [@container_video_(max-height:_320px)]:h-6 [@container_video_(max-height:_320px)]:w-16 md:[@container_video_(max-height:_320px)]:h-6 md:[@container_video_(max-height:_320px)]:w-16 [@container_video_(max-height:_220px)]:hidden"
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
             )}
             <div className="relative z-10 flex w-full min-w-0 items-center justify-center">
-              <div className="flex min-w-0 items-center gap-1.5 md:gap-2">
+              <div className="flex min-w-0 items-center gap-1.5 md:gap-2 [@container_video_(max-height:_320px)]:gap-1 md:[@container_video_(max-height:_320px)]:gap-1">
                 <span
                   className={clsx(
-                    "shrink-0 rounded-md px-1 py-0.5 font-semibold text-[10px] transition-[color,background-color,box-shadow,scale] duration-300 md:px-1.5 md:text-xs",
+                    "shrink-0 rounded-md px-1 py-0.5 font-semibold text-[10px] transition-[color,background-color,box-shadow,scale] duration-300 md:px-1.5 md:text-xs md:[@container_video_(max-height:_320px)]:px-1 md:[@container_video_(max-height:_320px)]:text-[10px]",
                     digitBuffer
                       ? "scale-110 bg-[linear-gradient(135deg,#3b82f6,#6366f1)] text-white shadow-[0_0_20px_rgba(59,130,246,0.45)] ring-2 ring-blue-200/40"
                       : "bg-blue-100/10 text-blue-50/65 ring-1 ring-blue-100/10",
@@ -1764,11 +1806,15 @@ export function VideoPlayer({
                 >
                   {digitBuffer || channel.id}
                 </span>
-                <h2 className="truncate font-bold text-white text-xs tracking-[0.01em] md:text-base">{channel.name}</h2>
+                <h2 className="truncate font-bold text-white text-xs tracking-[0.01em] md:text-base md:[@container_video_(max-height:_320px)]:text-xs">
+                  {channel.name}
+                </h2>
                 {channel.groups.length > 0 && (
                   <>
-                    <span className="hidden text-blue-100/35 text-xs sm:inline md:text-sm">·</span>
-                    <div className="hidden truncate text-blue-50/65 text-xs sm:block md:text-sm">
+                    <span className="hidden text-blue-100/35 text-xs sm:inline md:text-sm [@container_video_(max-height:_320px)]:hidden md:[@container_video_(max-height:_320px)]:hidden">
+                      ·
+                    </span>
+                    <div className="hidden truncate text-blue-50/65 text-xs sm:block md:text-sm [@container_video_(max-height:_320px)]:hidden md:[@container_video_(max-height:_320px)]:hidden">
                       {channel.groups.join(" / ")}
                     </div>
                   </>
@@ -1793,6 +1839,39 @@ export function VideoPlayer({
             </div>
           </div>
         </button>
+      )}
+
+      {warning && !error && (
+        <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center px-3 md:top-5 md:px-5">
+          <div
+            role="alert"
+            className={clsx(
+              PLAYER_OVERLAY_SURFACE_CLASS,
+              "pointer-events-auto w-full max-w-xl rounded-xl border-amber-200/25 bg-[linear-gradient(145deg,rgba(66,43,12,0.92),rgba(27,24,35,0.92))] p-3 text-white shadow-[0_16px_48px_rgba(24,13,2,0.48)] backdrop-blur-md md:p-4",
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-amber-50 text-sm md:text-base">{warning.message}</div>
+                {warning.description && (
+                  <div className="mt-1 break-words font-mono text-amber-50/65 text-xs leading-relaxed">
+                    {warning.description}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="-m-1 shrink-0 cursor-pointer rounded-lg p-1.5 text-amber-100/65 transition-colors hover:bg-white/10 hover:text-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70"
+                aria-label={t("dismiss")}
+                title={t("dismiss")}
+                onClick={() => setWarning(null)}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {error && (
@@ -1853,12 +1932,12 @@ export function VideoPlayer({
         <div
           role="toolbar"
           className={clsx(
-            "absolute bottom-0 left-0 right-0 z-10 transition-opacity duration-300",
+            "absolute bottom-0 left-[calc(0px_-_env(safe-area-inset-left))] right-[calc(0px_-_env(safe-area-inset-right))] z-10 transition-opacity duration-300",
+            showSidebar && "md:right-0",
             showControls
               ? "opacity-100"
               : "opacity-0 pointer-events-none has-focus-visible:opacity-100 has-focus-visible:pointer-events-auto",
           )}
-          onMouseEnter={showControlsImmediately}
         >
           <PlayerControls
             channel={channel}
@@ -1866,11 +1945,13 @@ export function VideoPlayer({
             currentProgram={currentProgram}
             isLive={isLive}
             onSeek={handleSeek}
+            onScrubbingChange={handleScrubbingChange}
             locale={locale}
             mediaInfo={slotMediaInfo[visibleSlotId]}
             renderState={slotRenderStates[visibleSlotId]}
             autoDeinterlace={autoDeinterlace}
             seekStartTime={streamStartTime}
+            liveSessionAnchor={liveSessionAnchor}
             isPlaying={isPlaying}
             onPlayPause={togglePlayPause}
             volume={volume}
@@ -1884,6 +1965,7 @@ export function VideoPlayer({
             isPiP={isPiP}
             isPiPSupported={isPictureInPictureSupported()}
             onPiPToggle={handlePiPToggle}
+            showMediaBadges={!isDocumentPiP}
             activeSourceIndex={activeSourceIndex}
             onSourceChange={onSourceChange}
           />
@@ -1893,7 +1975,12 @@ export function VideoPlayer({
   );
 
   return (
-    <div className="relative w-full bg-[radial-gradient(circle_at_50%_20%,#102044_0%,#050b18_52%,#01030a_100%)] pt-[env(safe-area-inset-top)] md:h-full">
+    <div
+      className={clsx(
+        "relative w-full bg-[radial-gradient(circle_at_50%_35%,#102044_0%,#050b18_58%,#01030a_100%)] pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] md:h-full",
+        showSidebar && "md:pr-0",
+      )}
+    >
       <div ref={playerDockRef} className="contents">
         {isDocumentPiP && (
           <div className="@container-size/video relative flex aspect-video w-full min-h-0 items-center justify-center bg-[radial-gradient(circle_at_center,#102044_0%,#050b18_62%,#01030a_100%)] px-4 text-center font-medium text-blue-50/65 text-sm md:aspect-auto md:h-full md:text-base">
