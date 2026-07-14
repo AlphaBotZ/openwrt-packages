@@ -4,15 +4,21 @@
 rtp2httpd can proxy, so you can develop the web player against the scenarios it
 needs to support:
 
-| Scenario           | Delivery                  | rtp2httpd proxy | Codecs                              |
-| ------------------ | ------------------------- | --------------- | ----------------------------------- |
-| HLS-TS live        | HTTP `.m3u8` + `.ts`      | `/http`         | `h264-mp2`, `hevc-aac`              |
-| HLS-fMP4 live      | HTTP `.m3u8` + `.m4s`     | `/http`         | `h264-aac`, `hevc-aac`              |
-| HLS catchup        | HTTP HLS VOD (`playseek`) | `/http`         | all of the above                    |
-| mpegts (RTSP)      | RTSP TS live + catchup    | `/rtsp`         | `h264-mp2`, `hevc-aac`              |
-| mpegts (multicast) | RTP multicast live        | `/rtp`          | `h264-mp2`, `hevc-ac3`, `hevc-eac3` |
-| mpegts (scan)      | RTP multicast live        | `/rtp`          | 1080i / 1080p / 2160p (see below)   |
-| external file      | RTP multicast (looped)    | `/rtp`          | whatever the `.ts` file contains    |
+| Scenario                 | Delivery                          | rtp2httpd proxy | Codecs                              |
+| ------------------------ | --------------------------------- | --------------- | ----------------------------------- |
+| HLS-TS live              | HTTP `.m3u8` + `.ts`              | `/http`         | `h264-mp2`, `hevc-aac`              |
+| HLS-fMP4 live            | HTTP `.m3u8` + `.m4s`             | `/http`         | `h264-aac`, `hevc-aac`              |
+| HLS alternate audio      | HTTP master + split A/V playlists | `/http`         | AAC / MP2 / AC-3 (TS), AAC (fMP4)   |
+| HLS internal multi-audio | HTTP `.m3u8` + multi-PID `.ts`    | `/http`         | H.264 + AAC / MP2 / AC-3            |
+| HLS timestamp continuity | HTTP VOD with crafted `.ts` PTS   | `/http`         | H.264 + MP2                          |
+| HLS live packet loss     | HTTP `.m3u8` + damaged `.ts`      | `/http`         | H.264 + MP2                          |
+| HTTP internal multi-audio | continuous multi-PID MPEG-TS     | `/http`         | H.264 + AAC / MP2 / AC-3            |
+| HLS catchup              | HTTP HLS VOD (`playseek`)         | `/http`         | all of the above                    |
+| mpegts (RTSP)            | RTSP TS live + catchup            | `/rtsp`         | `h264-mp2`, `hevc-aac`              |
+| mpegts continuity faults | RTSP catchup + RTP packet loss    | `/rtsp`         | H.264 + MP2                          |
+| mpegts (multicast)       | RTP multicast live                | `/rtp`          | `h264-mp2`, `hevc-ac3`, `hevc-eac3` |
+| mpegts (scan)            | RTP multicast live                | `/rtp`          | 1080i / 1080p / 2160p (see below)   |
+| external file            | RTP multicast (looped)            | `/rtp`          | whatever the `.ts` file contains    |
 
 - `h264-mp2`  = H.264 video + MPEG-1/2 Layer II audio
 - `hevc-aac`  = H.265/HEVC video + AAC audio
@@ -22,6 +28,36 @@ needs to support:
 HLS live is offered in both segment specs: **HLS-TS** (MPEG-TS `.ts` segments)
 and **HLS-fMP4** (an `init.mp4` referenced via `#EXT-X-MAP` + `.m4s` fragments).
 fMP4 carries AAC audio (MP2-in-MP4 is unsupported), so fMP4 channels use AAC.
+
+The two **alternate audio** channels use a video-only playlist plus English
+(440 Hz), Chinese (880 Hz), and Spanish (1320 Hz) renditions declared with
+`EXT-X-MEDIA`. The TS channel combines AAC, MP2, and AC-3; the fMP4 channel uses
+AAC for all three renditions. They exercise default-track selection, the player
+controls selector, audible track switching, codec changes, and per-channel
+selection persistence.
+
+The **internal multi-audio** channels carry those same three languages and
+tones as separate PIDs in one MPEG-TS program. One is segmented as HLS-TS and
+the other is a continuous HTTP TS response, covering both inputs accepted by
+the custom demux/transmux pipeline.
+
+The **HLS-TS continuity overlap gap restart** VOD has four six-second TS
+segments with deterministic timestamp starts: 0s, 5s, 13s, then 0s. This
+creates a one-second overlap, a two-second gap, and finally a greater-than-ten
+second timestamp restart. An `EXT-X-DISCONTINUITY` is also placed before the
+gap segment to prove that HLS-TS follows the timestamp policy instead of
+resetting its output timeline from playlist metadata.
+
+The two live packet-loss channels are deterministic fault injectors. HLS drops
+40 complete TS packets from every third segment; RTSP skips six consecutive RTP
+packets roughly every five seconds. The player should recover at the next valid
+sample/keyframe and keep its output timeline continuous.
+
+The **mpegts catchup gap** channel terminates every requested RTSP catchup
+window and advances the source timestamp offset by an extra two seconds for
+each subsequent request. Together with the normal RTSP catchup channel's
+one-second request overlap, these cover both overlap and gap handling across
+plain MPEG-TS URL boundaries.
 
 **HLS catchup** is a real HLS VOD: each `playseek` window returns an
 `index.m3u8` (`#EXT-X-PLAYLIST-TYPE:VOD`) listing fixed-duration `.ts` slices.
@@ -65,7 +101,7 @@ exact codecs/bitstream are relayed) — useful for reproducing a stream attached
 to a bug report:
 
 ```bash
-uv run python tools/devlab/devlab.py --ts-file /path/to/user-report.ts
+uv run tools/devlab/devlab.py --ts-file /path/to/user-report.ts
 # adds a "file <name>" channel proxied through rtp2httpd
 ```
 
@@ -80,7 +116,7 @@ UTC` — proving the time → picture mapping end to end.
 
 ```bash
 # 1. start the upstreams (writes /tmp/r2h-devlab.conf)
-uv run python tools/devlab/devlab.py
+uv run tools/devlab/devlab.py
 # The script prints the rtp2httpd command.
 
 # 2. in another shell, run rtp2httpd against the generated config
@@ -89,6 +125,21 @@ uv run python tools/devlab/devlab.py
 # 3. open the player and pick a channel
 #    http://127.0.0.1:5140/player
 ```
+
+## Browser autoplay and audio prompts
+
+Browsers may show a **Click to Play** prompt because unmuted audio playback
+requires a trusted user gesture. Browser automation must handle this prompt
+according to what the scenario is testing:
+
+- If the test does not depend on audible output, mute the player and then
+  reload the page. The reload is required so playback starts in the muted
+  state and the automation can continue without the prompt.
+- If the test validates audio or audible track switching, stop the automation,
+  show the player to the user, and ask the user to click **Click to Play**.
+  Resume only after the user confirms the interaction. Do not attempt to clear
+  the prompt with a programmatic click: it does not provide the trusted user
+  gesture required to enable audio playback.
 
 Requires `ffmpeg` on PATH with `drawtext`, `libx264`, `libx265`, `aac`, and
 `mp2`. On macOS with Homebrew, install a full build:
@@ -104,7 +155,7 @@ ffmpeg -hide_banner -filters | grep drawtext
 ```
 
 Defaults: HTTP origin `127.0.0.1:8881`, RTSP origin `127.0.0.1:8554`,
-rtp2httpd port `5140`. Run `uv run python tools/devlab/devlab.py --help` for
+rtp2httpd port `5140`. Run `uv run tools/devlab/devlab.py --help` for
 options.
 
 ## Verifying a scenario without the browser
