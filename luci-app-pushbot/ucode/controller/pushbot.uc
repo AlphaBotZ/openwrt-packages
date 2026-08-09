@@ -74,13 +74,13 @@ return {
 	},
 
 	act_send_test: function() {
-		system("/usr/bin/pushbot/pushbot test &");
+		system("/usr/bin/pushbot/pushbot test >/dev/null 2>&1 &");
 		http.prepare_content("application/json");
 		http.write_json({ ok: true });
 	},
 
 	act_send_manual: function() {
-		system("/usr/bin/pushbot/pushbot send &");
+		system("/usr/bin/pushbot/pushbot send >/dev/null 2>&1 &");
 		http.prepare_content("application/json");
 		http.write_json({ ok: true });
 	},
@@ -139,7 +139,8 @@ return {
 			"pushbot_interface","macmechanism2","crontab","regular_time",
 			"regular_time_2","regular_time_3","interval_time","send_title",
 			"router_status","router_temp","router_wan","client_list",
-			"google_check_count","pushbot_up","pushbot_down",
+			"google_check_count","pushbot_up","pushbot_down","table_format",
+			"ntfy_srv_enable","ntfy_server","ntfy_topic","ntfy_token_enable","ntfy_token","ntfy_priority","gotify_server","gotify_token","gotify_priority",
 			"cpuload_enable","cpuload","temperature_enable","temperature",
 			"client_usage","client_usage_max","client_usage_disturb",
 			"pushbot_ipv4","ipv4_interface","pushbot_ipv6","ipv6_interface",
@@ -204,7 +205,7 @@ return {
 
 		/* network interfaces */
 		let ifaces = [];
-		let pf = popen("timeout 3 ls /sys/class/net 2>/dev/null", "r");
+		let pf = popen("ls /sys/class/net 2>/dev/null", "r");
 		if (pf) {
 			for (let line = pf.read("line"); line; line = pf.read("line")) {
 				let n = replace(line, /\s+/, "");
@@ -217,7 +218,7 @@ return {
 
 		/* IP hints from arp */
 		let ip_hints = [];
-		let arpf = popen("timeout 3 grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /proc/net/arp 2>/dev/null", "r");
+		let arpf = popen("grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /proc/net/arp 2>/dev/null", "r");
 		if (arpf) {
 			for (let line = arpf.read("line"); line; line = arpf.read("line")) {
 				let m = match(line, /^(\d+\.\d+\.\d+\.\d+)/);
@@ -240,7 +241,7 @@ return {
 			lf.close();
 		}
 		/* also try arp for additional MACs */
-		let arpf2 = popen("timeout 3 grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /proc/net/arp 2>/dev/null", "r");
+		let arpf2 = popen("grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /proc/net/arp 2>/dev/null", "r");
 		if (arpf2) {
 			for (let line = arpf2.read("line"); line; line = arpf2.read("line")) {
 				let m = match(line, /^(\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+(\S+)/);
