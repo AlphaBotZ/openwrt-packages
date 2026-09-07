@@ -12,7 +12,7 @@ Compare **rtp2httpd**, **[msd_lite](https://github.com/rozhuk-im/msd_lite)**, **
 
 | Program | Tested version |
 | --- | --- |
-| rtp2httpd | [`b4fd92a6`](https://github.com/stackia/rtp2httpd/commit/b4fd92a6c49bd720e730aedd62cd10faeeca791f) |
+| rtp2httpd | [v3.17.0-beta.1](https://github.com/stackia/rtp2httpd/releases/tag/v3.17.0-beta.1) |
 | msd_lite | [`fa68e131`](https://github.com/rozhuk-im/msd_lite/commit/fa68e131343fb58c67ad77b2d26f2cb7c49a2c95), 2026-07-20; liblcb `e2f420a2` |
 | udpxy | [`31d4bcfa`](https://github.com/pcherenkov/udpxy/commit/31d4bcfabaade59d3efdee015df7979febf76bae), 2026-04-13 |
 | TVGate | [v3.2.0](https://github.com/qist/tvgate/releases/tag/v3.2.0), 2026-09-06 |
@@ -44,32 +44,32 @@ CPU and memory statistics include every completed measurement in each scenario. 
 
 ### CPU Utilization
 
-Values are the means of per-trial average CPU utilization, with the minimum and maximum in parentheses.
+Values are the means of per-trial average CPU utilization.
 
 | Scenario | rtp2httpd | msd_lite | udpxy | TVGate |
 | --- | ---: | ---: | ---: | ---: |
-| 8 channels, 40 Mbps each | 3.69% (2.60–4.52) | 12.28% (10.98–12.92) | 23.02% (22.31–23.91) | 56.65% (56.16–57.17) |
-| 8 clients, one 40 Mbps channel | 4.87% (4.64–4.98) | 5.58% (5.29–5.90) | 30.92% (29.19–32.29) | 45.09% (41.79–48.09) |
-| 64 clients, one 20 Mbps channel | 4.78% (4.77–4.78) | 5.50% (5.31–5.76) | 59.93% (58.77–60.62) | 115.08% (112.50–117.97) |
-| 1 client, 400 Mbps | 12.88% (9.70–14.27) | 15.46% (14.85–15.77) | 26.45% (24.58–27.68) | 57.86% (56.08–59.28) |
+| 8 channels, 40 Mbps each | 🏆 3.69% | 12.28% | 23.02% | 56.65% |
+| 8 clients, one 40 Mbps channel | 🏆 4.87% | 5.58% | 30.92% | 45.09% |
+| 64 clients, one 20 Mbps channel | 🏆 4.78% | 5.50% | 59.93% | 115.08% |
+| 1 client, 400 Mbps | 🏆 12.88% | 15.46% | 26.45% | 57.86% |
 
 ### PSS Memory (MiB)
 
 | Scenario | rtp2httpd | msd_lite | udpxy | TVGate |
 | --- | ---: | ---: | ---: | ---: |
-| 8 channels, 40 Mbps each | 1.86 | 8.95 | 0.79 | 25.82 |
-| 8 clients, one 40 Mbps channel | 1.13 | 1.35 | 0.79 | 22.76 |
-| 64 clients, one 20 Mbps channel | 1.30 | 1.37 | 4.55 | 46.26 |
-| 1 client, 400 Mbps | 1.26 | 1.34 | 0.32 | 19.16 |
+| 8 channels, 40 Mbps each | 1.86 | 8.95 | 🏆 0.79 | 25.82 |
+| 8 clients, one 40 Mbps channel | 1.13 | 1.35 | 🏆 0.79 | 22.76 |
+| 64 clients, one 20 Mbps channel | 🏆 1.30 | 1.37 | 4.55 | 46.26 |
+| 1 client, 400 Mbps | 1.26 | 1.34 | 🏆 0.32 | 19.16 |
 
 ### USS Memory (MiB)
 
 | Scenario | rtp2httpd | msd_lite | udpxy | TVGate |
 | --- | ---: | ---: | ---: | ---: |
-| 8 channels, 40 Mbps each | 1.24 | 8.94 | 0.52 | 25.82 |
-| 8 clients, one 40 Mbps channel | 0.51 | 1.34 | 0.52 | 22.76 |
-| 64 clients, one 20 Mbps channel | 0.68 | 1.35 | 3.96 | 46.26 |
-| 1 client, 400 Mbps | 0.63 | 1.33 | 0.12 | 19.16 |
+| 8 channels, 40 Mbps each | 1.24 | 8.94 | 🏆 0.52 | 25.82 |
+| 8 clients, one 40 Mbps channel | 🏆 0.51 | 1.34 | 0.52 | 22.76 |
+| 64 clients, one 20 Mbps channel | 🏆 0.68 | 1.35 | 3.96 | 46.26 |
+| 1 client, 400 Mbps | 0.63 | 1.33 | 🏆 0.12 | 19.16 |
 
 ## Appendix: Performance Optimization Strategies in rtp2httpd
 
